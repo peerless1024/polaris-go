@@ -27,6 +27,7 @@ import (
 
 	"github.com/polarismesh/polaris-go/pkg/algorithm/rand"
 	"github.com/polarismesh/polaris-go/pkg/config"
+	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/plugin"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
@@ -84,9 +85,26 @@ func (g *RuleBasedInstancesFilter) Destroy() error {
 
 // Enable 是否需要启动规则路由
 func (g *RuleBasedInstancesFilter) Enable(routeInfo *servicerouter.RouteInfo, clusters model.ServiceClusters) bool {
+	log.GetBaseLogger().Debugf("RuleBasedRouter Enable: source=%s, dest=%s, sourceRule=%v, destRule=%v",
+		routeInfo.SourceService, routeInfo.DestService, routeInfo.SourceRouteRule, routeInfo.DestRouteRule)
 	dstRoutes := g.getRoutesFromRule(routeInfo, dstRouteRuleMatch)
 	sourceRoutes := g.getRoutesFromRule(routeInfo, sourceRouteRuleMatch)
-	return len(dstRoutes) > 0 || len(sourceRoutes) > 0
+	enabled := len(dstRoutes) > 0 || len(sourceRoutes) > 0
+	log.GetBaseLogger().Debugf("RuleBasedRouter.Enable: dstRoutes=%d, sourceRoutes=%d, enabled=%v",
+		len(dstRoutes), len(sourceRoutes), enabled)
+	if routeInfo.DestRouteRule != nil {
+		log.GetBaseLogger().Debugf("RuleBasedRouter.Enable: DestRouteRule exists, value type=%T",
+			routeInfo.DestRouteRule.GetValue())
+	} else {
+		log.GetBaseLogger().Debugf("RuleBasedRouter.Enable: DestRouteRule is nil")
+	}
+	if routeInfo.SourceRouteRule != nil {
+		log.GetBaseLogger().Debugf("RuleBasedRouter.Enable: SourceRouteRule exists, value type=%T",
+			routeInfo.SourceRouteRule.GetValue())
+	} else {
+		log.GetBaseLogger().Debugf("RuleBasedRouter.Enable: SourceRouteRule is nil")
+	}
+	return enabled
 }
 
 // GetFilteredInstances 进行服务实例过滤，并返回过滤后的实例列表
@@ -109,6 +127,7 @@ func (g *RuleBasedInstancesFilter) GetFilteredInstances(
 	var err error
 	dstRoutes = g.getRoutesFromRule(routeInfo, dstRouteRuleMatch)
 	if len(dstRoutes) > 0 {
+		log.GetBaseLogger().Debugf("RuleBasedRouter: found %d destination routes", len(dstRoutes))
 		routeInfo.MatchRuleType = servicerouter.DestRule
 		filteredInstances, err = g.getRuleFilteredInstances(
 			dstRouteRuleMatch, routeInfo, clusters, dstRoutes, withinCluster, &summary)

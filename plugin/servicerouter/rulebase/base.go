@@ -42,6 +42,20 @@ func (m matchResult) String() string {
 	return matchResultToPresent[m]
 }
 
+// getMapKeys 获取map的所有key（用于调试日志）
+func getMapKeys(m map[string]*apimodel.MatchString) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// getSourceMetadataKeys 获取source metadata的所有key（用于调试日志）
+func getSourceMetadataKeys(m map[string]*apimodel.MatchString) []string {
+	return getMapKeys(m)
+}
+
 var (
 	matchResultToPresent = map[matchResult]string{
 		noRouteRule:       "noRouteRule",
@@ -143,8 +157,10 @@ func (g *RuleBasedInstancesFilter) matchSourceMetadata(ruleMeta map[string]*apim
 	if routeInfo.SourceService != nil {
 		srcMeta = routeInfo.SourceService.GetMetadata()
 	}
+	log.GetBaseLogger().Debugf("matchSourceMetadata: srcMeta=%v, ruleMeta keys=%v", srcMeta, getMapKeys(ruleMeta))
 	// 如果规则metadata不为空, 待匹配规则为空, 直接返回失败
 	if len(srcMeta) == 0 {
+		log.GetBaseLogger().Debugf("matchSourceMetadata: srcMeta is empty, return false")
 		return false, "", nil
 	}
 	// metadata是否全部匹配
@@ -154,11 +170,15 @@ func (g *RuleBasedInstancesFilter) matchSourceMetadata(ruleMeta map[string]*apim
 			continue
 		}
 		if srcMetaValue, ok := srcMeta[ruleMetaKey]; ok {
+			log.GetBaseLogger().Debugf("matchSourceMetadata: found key=%s, srcValue=%s, ruleValue=%v", ruleMetaKey, srcMetaValue, ruleMetaValue.GetValue().GetValue())
 			if ruleMetaValue.GetValue().GetValue() == matchAll {
+				log.GetBaseLogger().Debugf("matchSourceMetadata: rule value is matchAll, continue")
 				continue
 			}
 			rawMetaValue, exist := g.getRuleMetaValueForSource(routeInfo, ruleMetaKey, ruleMetaValue)
+			log.GetBaseLogger().Debugf("matchSourceMetadata: getRuleMetaValueForSource returned rawValue=%s, exist=%v", rawMetaValue, exist)
 			if !exist {
+				log.GetBaseLogger().Debugf("matchSourceMetadata: rawMetaValue not exist, return false")
 				return false, "", nil
 			}
 			allMetaMatched = match.MatchString(srcMetaValue, &apimodel.MatchString{
@@ -171,8 +191,10 @@ func (g *RuleBasedInstancesFilter) matchSourceMetadata(ruleMeta map[string]*apim
 				}
 				return matchExp
 			})
+			log.GetBaseLogger().Debugf("matchSourceMetadata: match result=%v for key=%s, srcValue=%s, rawValue=%s", allMetaMatched, ruleMetaKey, srcMetaValue, rawMetaValue)
 		} else {
 			// 假如不存在规则要求的KEY，则直接返回匹配失败
+			log.GetBaseLogger().Debugf("matchSourceMetadata: key=%s not found in srcMeta, return false", ruleMetaKey)
 			allMetaMatched = false
 		}
 		if !allMetaMatched {
@@ -213,21 +235,32 @@ type invalidRegexInfo struct {
 func (g *RuleBasedInstancesFilter) matchSource(sources []*apitraffic.Source, routeInfo *servicerouter.RouteInfo,
 	ruleMatchType int, ruleCache model.RuleCache) (success bool, matched *apitraffic.Source,
 	notMatched []*apitraffic.Source, invalidRegexInfos *invalidRegexInfo) {
+	log.GetBaseLogger().Debugf("matchSource: sources count=%d, ruleMatchType=%d", len(sources), ruleMatchType)
 	if len(sources) == 0 {
+		log.GetBaseLogger().Debugf("matchSource: sources is empty, return true")
 		return true, nil, nil, nil
 	}
 	sourceService := routeInfo.SourceService
+	if sourceService != nil {
+		log.GetBaseLogger().Debugf("matchSource: sourceService=%s.%s, metadata=%v",
+			sourceService.GetNamespace(), sourceService.GetService(), sourceService.GetMetadata())
+	} else {
+		log.GetBaseLogger().Debugf("matchSource: sourceService is nil")
+	}
 	var invalidRegexError error
 	var invalidRegex string
 	// source匹配成功标志
 	// matched = true
 	// invalidRegexes = false
-	for _, source := range sources {
+	for idx, source := range sources {
+		log.GetBaseLogger().Debugf("matchSource: checking source[%d], namespace=%s, service=%s, metadata keys=%v",
+			idx, source.Namespace.GetValue(), source.Service.GetValue(), getSourceMetadataKeys(source.Metadata))
 		// 对于inbound规则, 需要匹配source服务
 		if ruleMatchType == dstRouteRuleMatch {
 			if reflect2.IsNil(sourceService) {
 				// 如果没有source服务信息, 判断rule是否支持全匹配
 				if source.Namespace.GetValue() != matchAll || source.Service.GetValue() != matchAll {
+					log.GetBaseLogger().Debugf("matchSource: sourceService is nil and source not matchAll, skip")
 					success = false
 					notMatched = append(notMatched, source)
 					continue
@@ -237,12 +270,16 @@ func (g *RuleBasedInstancesFilter) matchSource(sources []*apitraffic.Source, rou
 				// 如果命名空间|服务不为"*"且不等于原服务, 则匹配失败
 				if source.Namespace.GetValue() != matchAll &&
 					source.Namespace.GetValue() != sourceService.GetNamespace() {
+					log.GetBaseLogger().Debugf("matchSource: namespace not match, rule=%s, actual=%s",
+						source.Namespace.GetValue(), sourceService.GetNamespace())
 					success = false
 					notMatched = append(notMatched, source)
 					continue
 				}
 				if source.Service.GetValue() != matchAll &&
 					source.Service.GetValue() != sourceService.GetService() {
+					log.GetBaseLogger().Debugf("matchSource: service not match, rule=%s, actual=%s",
+						source.Service.GetValue(), sourceService.GetService())
 					success = false
 					notMatched = append(notMatched, source)
 					continue
@@ -252,6 +289,7 @@ func (g *RuleBasedInstancesFilter) matchSource(sources []*apitraffic.Source, rou
 
 		// 如果rule中metadata为空, 匹配成功, 结束
 		if len(source.Metadata) == 0 {
+			log.GetBaseLogger().Debugf("matchSource: source metadata is empty, match success")
 			success = true
 			matched = source
 			break
@@ -259,11 +297,13 @@ func (g *RuleBasedInstancesFilter) matchSource(sources []*apitraffic.Source, rou
 
 		// 如果没有源服务信息, 本次匹配失败
 		if reflect2.IsNil(sourceService) {
+			log.GetBaseLogger().Debugf("matchSource: sourceService is nil but source has metadata, skip")
 			success = false
 			notMatched = append(notMatched, source)
 			continue
 		}
 
+		log.GetBaseLogger().Debugf("matchSource: calling matchSourceMetadata")
 		success, invalidRegex, invalidRegexError = g.matchSourceMetadata(source.Metadata, routeInfo, ruleCache)
 		if success {
 			matched = source
@@ -549,27 +589,35 @@ func ruleEmpty(svcRule model.ServiceRule) bool {
 
 // 根据路由规则进行服务实例过滤, 并返回过滤后的实例列表
 func (g *RuleBasedInstancesFilter) getRoutesFromRule(routeInfo *servicerouter.RouteInfo, ruleMatchType int) []*apitraffic.Route {
+	log.GetBaseLogger().Debugf("getRoutesFromRule: ruleMatchType=%d", ruleMatchType)
 	// 跟据服务类型获取对应路由规则
 	// 被调inbound
 	if ruleMatchType == dstRouteRuleMatch {
+		log.GetBaseLogger().Debugf("getRoutesFromRule: checking dstRouteRule")
 		if ruleEmpty(routeInfo.DestRouteRule) {
+			log.GetBaseLogger().Debugf("getRoutesFromRule: DestRouteRule is empty")
 			return nil
 		}
 		routeRuleValue := routeInfo.DestRouteRule.GetValue()
 		routing := routeRuleValue.(*apitraffic.Routing)
+		log.GetBaseLogger().Debugf("getRoutesFromRule: DestRouteRule has %d inbounds", len(routing.Inbounds))
 		return routing.Inbounds
 	}
 
+	log.GetBaseLogger().Debugf("getRoutesFromRule: checking sourceRouteRule")
 	if ruleEmpty(routeInfo.SourceRouteRule) {
+		log.GetBaseLogger().Debugf("getRoutesFromRule: SourceRouteRule is empty")
 		return nil
 	}
 
 	// 主调outbound
 	if reflect2.IsNil(routeInfo.SourceService) {
+		log.GetBaseLogger().Debugf("getRoutesFromRule: SourceService is nil")
 		return nil
 	}
 	routeRuleValue := routeInfo.SourceRouteRule.GetValue()
 	routing := routeRuleValue.(*apitraffic.Routing)
+	log.GetBaseLogger().Debugf("getRoutesFromRule: SourceRouteRule has %d outbounds", len(routing.Outbounds))
 	return routing.Outbounds
 }
 
@@ -604,13 +652,15 @@ func (rms *ruleMatchSummary) appendErrorRegexes(invalid *invalidRegexInfo) {
 func (g *RuleBasedInstancesFilter) getRuleFilteredInstances(ruleMatchType int, routeInfo *servicerouter.RouteInfo,
 	svcCache model.ServiceClusters, routes []*apitraffic.Route,
 	inCluster *model.Cluster, summary *ruleMatchSummary) (*model.Cluster, error) {
+	log.GetBaseLogger().Debugf("getRuleFilteredInstances: ruleMatchType=%d, routes count=%d", ruleMatchType, len(routes))
 	var ruleCache model.RuleCache
 	if ruleMatchType == dstRouteRuleMatch {
 		ruleCache = routeInfo.DestRouteRule.GetRuleCache()
 	} else {
 		ruleCache = routeInfo.SourceRouteRule.GetRuleCache()
 	}
-	for _, route := range routes {
+	for i, route := range routes {
+		log.GetBaseLogger().Debugf("getRuleFilteredInstances: processing route[%d], sources count=%d", i, len(route.Sources))
 		// 匹配source规则
 		sourceMatched, matchSource, notMatches, invalidRegex := g.matchSource(route.Sources, routeInfo, ruleMatchType, ruleCache)
 

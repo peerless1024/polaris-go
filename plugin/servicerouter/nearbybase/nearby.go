@@ -20,10 +20,11 @@ package nearbybase
 import (
 	"context"
 	"fmt"
-	"github.com/modern-go/reflect2"
-	apitraffic "github.com/polarismesh/specification/source/go/api/v1/traffic_manage"
 	"strings"
 	"time"
+
+	"github.com/modern-go/reflect2"
+	apitraffic "github.com/polarismesh/specification/source/go/api/v1/traffic_manage"
 
 	"github.com/polarismesh/polaris-go/pkg/config"
 	"github.com/polarismesh/polaris-go/pkg/log"
@@ -230,7 +231,7 @@ func (g *NearbyBasedInstancesFilter) GetLevel(clusters model.ServiceClusters) (i
 			if nearbySp.GetMaxMatchLevel() != "" {
 				maxMatchLevelTmp := nearbyLevels[nearbySp.GetMaxMatchLevel()]
 				if maxMatchLevelTmp <= matchLevel {
-					g.maxMatchLevel = maxMatchLevelTmp
+					maxMatchLevel = maxMatchLevelTmp
 				} else {
 					log.GetBaseLogger().Warnf("%s %s nearbyConfig maxMatchLevel > matchLevel", namespace, service)
 				}
@@ -299,6 +300,7 @@ func (g *NearbyBasedInstancesFilter) GetFilteredInstances(rInfo *servicerouter.R
 	if finalLevel < priorityLevelAll {
 		finalLevel = notZeroLevel
 	}
+	// 额外的安全检查：如果finalLevel仍然小于priorityLevelAll（即为-1），说明所有级别都没有实例
 	if finalLevel < priorityLevelAll {
 		outCluster.MissLocationInstances = true
 		outCluster.LocationMatchInfo = allLevelsCountToString(&allLevelsCount)
