@@ -72,9 +72,14 @@ var (
 		"InnerServiceLBTestingSuite": mockInnerServiceLBTestingSuite,
 		"LocalNormalTestingSuite":    mockLocalNormalTestingSuite,
 		"RuleChangeTestingSuite":     func() {},
-		"RemoteNormalTestingSuite":   func() {},
+		"RemoteNormalTestingSuite":   mockRemoteNormalTestingSuite,
 	}
 )
+
+func mockRemoteNormalTestingSuite() {
+	// 基础远程限流用例测试
+	Suite(&ratelimit.RemoteNormalTestingSuite{})
+}
 
 // 初始化测试套
 func init() {
