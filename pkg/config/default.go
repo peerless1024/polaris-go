@@ -153,6 +153,8 @@ const (
 	DefaultMinRegisterInterval = 30 * time.Second
 	// DefaultConfigFilterEnabled 默认配置过滤是否开启
 	DefaultConfigFilterEnabled bool = true
+	// DefaultLosslessEnabled 默认启用无损上下线
+	DefaultLosslessEnabled = false
 )
 
 // defaultBuiltinServerPort 默认埋点server的端口，与上面的IP一一对应.
@@ -234,6 +236,15 @@ const (
 	DefaultLimiterNamespace string = "Polaris"
 	// DefaultLimiterService 默认的限流服务
 	DefaultLimiterService string = "polaris.limiter"
+
+	// DefaultLosslessType 默认无损上下线插件类型
+	DefaultLosslessType string = "composite"
+	// DefaultLosslessDelayRegisterInterval 默认延迟注册间隔 30 秒
+	DefaultLosslessDelayRegisterInterval = 30 * time.Second
+	// DefaultLosslessHealthCheckInterval 默认健康检查间隔 5 秒
+	DefaultLosslessHealthCheckInterval = 5 * time.Second
+	// DefaultLosslessStrategy 默认无损上线延迟策略为时长延迟策略
+	DefaultLosslessStrategy = model.LosslessDelayRegisterStrategyDelayByTime
 )
 
 // 默认的就近路由配置.
@@ -453,6 +464,9 @@ func (g *GlobalConfigImpl) Verify() error {
 	if err = g.EventReporter.Verify(); err != nil {
 		errs = multierror.Append(errs, err)
 	}
+	if err = g.Admin.Verify(); err != nil {
+		errs = multierror.Append(errs, err)
+	}
 	return errs
 }
 
@@ -464,6 +478,7 @@ func (g *GlobalConfigImpl) SetDefault() {
 	g.StatReporter.SetDefault()
 	g.EventReporter.SetDefault()
 	g.Location.SetDefault()
+	g.Admin.SetDefault()
 }
 
 // Init 全局配置初始化.
@@ -481,6 +496,8 @@ func (g *GlobalConfigImpl) Init() {
 	g.Location.Init()
 	g.Client = &ClientConfigImpl{}
 	g.Client.Init()
+	g.Admin = &AdminConfigImpl{}
+	g.Admin.Init()
 }
 
 // Init 初始化ConsumerConfigImpl.

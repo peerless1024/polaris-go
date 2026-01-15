@@ -323,6 +323,7 @@ func (pa *PullAction) Run(ctx context.Context) {
 		return
 	}
 	go pa.doAggregation(ctx)
+	// TODO: delete
 	go func() {
 		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", pa.bindIP, pa.bindPort.Load()))
 		if err != nil {

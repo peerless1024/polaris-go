@@ -35,6 +35,7 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/model/pb"
 	"github.com/polarismesh/polaris-go/pkg/plugin"
+	"github.com/polarismesh/polaris-go/pkg/plugin/admin"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 	"github.com/polarismesh/polaris-go/pkg/plugin/configconnector"
 	"github.com/polarismesh/polaris-go/pkg/plugin/configfilter"
@@ -42,6 +43,7 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/plugin/loadbalancer"
 	"github.com/polarismesh/polaris-go/pkg/plugin/localregistry"
 	"github.com/polarismesh/polaris-go/pkg/plugin/location"
+	"github.com/polarismesh/polaris-go/pkg/plugin/lossless"
 	statreporter "github.com/polarismesh/polaris-go/pkg/plugin/metrics"
 	"github.com/polarismesh/polaris-go/pkg/plugin/serverconnector"
 	"github.com/polarismesh/polaris-go/pkg/plugin/servicerouter"
@@ -65,6 +67,10 @@ type Engine struct {
 	reporterChain []statreporter.StatReporter
 	// 事件插件链
 	eventChain []events.EventReporter
+	// admin
+	admin admin.Admin
+	// 无损上下线插件
+	lossless lossless.Lossless
 	// 负载均衡器
 	loadbalancer loadbalancer.LoadBalancer
 	// 限流处理协助辅助类
@@ -133,6 +139,14 @@ func InitFlowEngine(flowEngine *Engine, initContext plugin.InitContext) error {
 	}
 
 	flowEngine.eventChain, err = data.GetEventReporterChain(cfg, plugins)
+	if err != nil {
+		return err
+	}
+	flowEngine.admin, err = data.GetAdmin(cfg, plugins)
+	if err != nil {
+		return err
+	}
+	flowEngine.lossless, err = data.GetLossless(cfg, plugins)
 	if err != nil {
 		return err
 	}

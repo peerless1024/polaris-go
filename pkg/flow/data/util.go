@@ -26,6 +26,7 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/plugin"
+	"github.com/polarismesh/polaris-go/pkg/plugin/admin"
 	"github.com/polarismesh/polaris-go/pkg/plugin/circuitbreaker"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 	"github.com/polarismesh/polaris-go/pkg/plugin/configconnector"
@@ -34,6 +35,7 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/plugin/healthcheck"
 	"github.com/polarismesh/polaris-go/pkg/plugin/loadbalancer"
 	"github.com/polarismesh/polaris-go/pkg/plugin/localregistry"
+	"github.com/polarismesh/polaris-go/pkg/plugin/lossless"
 	statreporter "github.com/polarismesh/polaris-go/pkg/plugin/metrics"
 	"github.com/polarismesh/polaris-go/pkg/plugin/serverconnector"
 	"github.com/polarismesh/polaris-go/pkg/plugin/servicerouter"
@@ -176,6 +178,28 @@ func GetEventReporterChain(cfg config.Configuration, supplier plugin.Supplier) (
 		}
 	}
 	return reporterChain, nil
+}
+
+func GetAdmin(cfg config.Configuration, supplier plugin.Supplier) (admin.Admin, error) {
+	adminType := cfg.GetGlobal().GetAdmin().GetType()
+	targetPlugin, err := supplier.GetPlugin(common.TypeAdmin, adminType)
+	if err != nil {
+		return nil, err
+	}
+	return targetPlugin.(admin.Admin), nil
+}
+
+// GetLossless 获取无损上下线插件
+func GetLossless(cfg config.Configuration, supplier plugin.Supplier) (lossless.Lossless, error) {
+	losslessCfg := cfg.GetProvider().GetLossless()
+	if losslessCfg == nil || !losslessCfg.IsEnable() || losslessCfg.GetType() == "" {
+		return nil, nil
+	}
+	targetPlugin, err := supplier.GetPlugin(common.TypeLossless, losslessCfg.GetType())
+	if err != nil {
+		return nil, err
+	}
+	return targetPlugin.(lossless.Lossless), nil
 }
 
 // GetLoadBalancer 获取负载均衡插件

@@ -1,0 +1,41 @@
+global:
+  serverConnector:
+    addresses:
+      - ${POLARIS_SERVER}:8091
+    token: ${POLARIS_TOKEN}
+  eventReporter:
+    enable: true
+    chain:
+      - pushgateway
+# 被调方配置
+provider:
+  # 无损上下线配置
+  lossless:
+    # 是否启用无损上下线
+    enable: true
+    chain:
+      # 延迟注册插件
+      - delayRegister
+      # 接口探针插件
+      - graceProbe
+    plugin:
+      # 无损上线延迟注册插件配置
+      delayRegister:
+        # 无损上线延迟注册策略
+        strategy: DELAY_BY_HEALTH_CHECK
+        # 探测延迟注册的探测周期, 默认5s
+        healthCheckInterval: 5s
+        # 探测延迟注册的探测协议
+        healthCheckProtocol: "HTTP"
+        # 探测延迟注册的探测方法
+        healthCheckMethod: "GET"
+        # 探测延迟注册的探测路径
+        healthCheckPath: "/health"
+      # 无损下线preStop插件配置
+      graceProbe:
+        # 无损下线preStop插件的探测路径
+        preDeregisterPath: /offline
+        # 无损上线就绪检查的探测路径
+        readinessPath: /readiness
+        # 无损上下线探测端口
+        port: 28080

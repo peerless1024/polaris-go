@@ -66,6 +66,7 @@ type GlobalConfigImpl struct {
 	EventReporter   *EventReporterConfigImpl   `yaml:"eventReporter" json:"eventReporter"`
 	Location        *LocationConfigImpl        `yaml:"location" json:"location"`
 	Client          *ClientConfigImpl          `yaml:"client" json:"client"`
+	Admin           *AdminConfigImpl           `yaml:"admin" json:"admin"`
 }
 
 // GetSystem 获取系统配置.
@@ -101,6 +102,11 @@ func (g *GlobalConfigImpl) GetLocation() LocationConfig {
 // GetClient global.client前缀开头的所有配置项.
 func (g *GlobalConfigImpl) GetClient() ClientConfig {
 	return g.Client
+}
+
+// GetAdmin global.admin前缀开头的所有配置项.
+func (g *GlobalConfigImpl) GetAdmin() AdminConfig {
+	return g.Admin
 }
 
 // ConsumerConfigImpl 消费者配置.
