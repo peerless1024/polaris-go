@@ -39,7 +39,8 @@ type ConfigEvent interface {
 type BaseEventType int
 
 const (
-	ConfigBaseEvent BaseEventType = iota
+	ConfigBaseEvent   BaseEventType = iota
+	LosslessBaseEvent BaseEventType = iota
 )
 
 type EventName string

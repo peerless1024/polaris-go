@@ -41,22 +41,6 @@ const (
 var supportedHealthCheckProtocols = map[string]struct{}{"HTTP": {}}
 var supportedHealthCheckMethods = map[string]struct{}{"GET": {}}
 
-// 事件常量
-const (
-	// EventLosslessRegister 无损注册事件
-	EventLosslessRegister = "lossless_register"
-	// EventDirectRegister 直接注册事件
-	EventDirectRegister = "direct_register"
-	// EventLosslessDeregister 无损反注册事件
-	EventLosslessDeregister = "lossless_deregister"
-	// EventLosslessDelayRegisterStart 延迟注册开始事件
-	EventLosslessDelayRegisterStart = "lossless_delay_register_start"
-	// EventLosslessWarmupStart 预热开始事件
-	EventLosslessWarmupStart = "lossless_warmup_start"
-	// EventLosslessWarmupEnd 预热结束事件
-	EventLosslessWarmupEnd = "lossless_warmup_end"
-)
-
 // Config 延迟注册无损策略配置
 type Config struct {
 	// HealthCheckProtocol 探测延迟注册的探测协议
@@ -85,7 +69,6 @@ func (c *Config) Verify() error {
 				mapKeys(supportedHealthCheckProtocols), c.HealthCheckProtocol)
 		}
 	}
-
 	// 校验健康检查方法
 	if c.HealthCheckMethod != "" {
 		method := strings.ToUpper(c.HealthCheckMethod)
@@ -94,22 +77,18 @@ func (c *Config) Verify() error {
 				mapKeys(supportedHealthCheckMethods), c.HealthCheckMethod)
 		}
 	}
-
 	// 校验健康检查路径
 	if c.HealthCheckPath != "" && !strings.HasPrefix(c.HealthCheckPath, "/") {
 		return fmt.Errorf("lossless plugin config healthCheckPath must start with '/', got: %s", c.HealthCheckPath)
 	}
-
 	// 校验下线路径
 	if c.OfflinePath != "" && !strings.HasPrefix(c.OfflinePath, "/") {
 		return fmt.Errorf("lossless plugin config offlinePath must start with '/', got: %s", c.OfflinePath)
 	}
-
 	// 校验就绪检查路径
 	if c.ReadinessPath != "" && !strings.HasPrefix(c.ReadinessPath, "/") {
 		return fmt.Errorf("lossless plugin config readinessPath must start with '/', got: %s", c.ReadinessPath)
 	}
-
 	return nil
 }
 

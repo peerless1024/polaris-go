@@ -28,6 +28,7 @@ import (
 // SyncLosslessRegister 同步进行服务注册
 func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (*model.InstanceRegisterResponse,
 	error) {
+	// TODO 加上事件记录和状态
 	losslessRule, err := e.SyncGetServiceRule(model.EventLosslessRule, &model.GetServiceRuleRequest{
 		Namespace: instance.Namespace,
 		Service:   instance.Service,
@@ -50,11 +51,11 @@ func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (
 	}
 	if effectiveRule.ReadinessProbe != nil || effectiveRule.OfflineProbe != nil {
 		if effectiveRule.ReadinessProbe != nil {
-			effectiveRule.ReadinessProbe.HandlerFunc = e.ReadinessCheck()
+			effectiveRule.ReadinessProbe.HandlerFunc = e.losslessReadinessCheck()
 			e.admin.RegisterHandler(effectiveRule.ReadinessProbe)
 		}
 		if effectiveRule.OfflineProbe != nil {
-			effectiveRule.OfflineProbe.HandlerFunc = e.OfflineProcess(instance)
+			effectiveRule.OfflineProbe.HandlerFunc = e.losslessOfflineProcess(instance)
 			e.admin.RegisterHandler(effectiveRule.OfflineProbe)
 		}
 		// 启动无损上下线接口
@@ -64,24 +65,17 @@ func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (
 		log.GetBaseLogger().Infof("SyncLosslessRegister delayRegisterEnabled is false, register directly")
 		return e.SyncRegister(instance)
 	}
-	passSignal := make(chan bool, 1)
-	e.lossless.OnProcess(passSignal)
-	// 等待信号返回true，持续消费直到收到true
-	for {
-		pass := <-passSignal
-		if !pass {
-			// false仅打印日志，继续等待下一次信号
-			log.GetBaseLogger().Errorf("SyncLosslessRegister lossless check failed, continue waiting...")
-			continue
-		}
-		// 收到true，跳出循环
-		log.GetBaseLogger().Infof("SyncLosslessRegister lossless check success, register instance")
-		break
+	// 延迟注册检查
+	err = e.lossless.DelayRegisterChecker(instance.Port)
+	if err != nil {
+		log.GetBaseLogger().Errorf("SyncLosslessRegister DelayRegisterChecker error: %v", err)
+		return nil, err
 	}
 	return e.SyncRegister(instance)
 }
 
-func (e *Engine) ReadinessCheck() func(w http.ResponseWriter, r *http.Request) {
+// 是否改成函数
+func (e *Engine) losslessReadinessCheck() func(w http.ResponseWriter, r *http.Request) {
 	HandlerFunc := func(w http.ResponseWriter, r *http.Request) {
 		// TODO 获取注册状态
 		w.WriteHeader(http.StatusOK)
@@ -89,13 +83,14 @@ func (e *Engine) ReadinessCheck() func(w http.ResponseWriter, r *http.Request) {
 	return HandlerFunc
 }
 
-func (e *Engine) OfflineProcess(instance *model.InstanceRegisterRequest) func(w http.ResponseWriter, r *http.Request) {
+// 是否改成函数
+func (e *Engine) losslessOfflineProcess(instance *model.InstanceRegisterRequest) func(w http.ResponseWriter, r *http.Request) {
 	HandlerFunc := func(w http.ResponseWriter, r *http.Request) {
 		if err := e.SyncDeregister(registerToDeregister(instance)); err == nil {
-			log.GetBaseLogger().Infof("OfflineProcess SyncDeregister success")
+			log.GetBaseLogger().Infof("losslessOfflineProcess SyncDeregister success")
 			w.WriteHeader(http.StatusOK)
 		} else {
-			log.GetBaseLogger().Errorf("OfflineProcess SyncDeregister error: %v", err)
+			log.GetBaseLogger().Errorf("losslessOfflineProcess SyncDeregister error: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}

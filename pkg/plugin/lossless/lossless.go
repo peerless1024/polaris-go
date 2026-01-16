@@ -27,7 +27,7 @@ import (
 type Lossless interface {
 	plugin.Plugin
 	OnPreProcess(*model.ServiceRuleResponse) *model.LosslessInfo
-	OnProcess(<-chan bool)
+	DelayRegisterChecker(int) error
 }
 
 func init() {

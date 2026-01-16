@@ -83,5 +83,108 @@ func (c *LosslessHealthCheckConfig) String() string {
 		c.HealthCheckProtocol, c.HealthCheckMethod)
 }
 
-type LosslessEvent struct {
+const (
+	EVENT_LOSSLESS_DELAY_REGISTER_START EventName = "LosslessDelayRegisterStart"
+	EVENT_DIRECT_REGISTER               EventName = "DirectRegister"
+	EVENT_LOSSLESS_REGISTER             EventName = "LosslessRegister"
+	EVENT_LOSSLESS_DEREGISTER           EventName = "LosslessDeregister"
+	EVENT_LOSSLESS_WARMUP_START         EventName = "LosslessWarmupStart"
+	EVENT_LOSSLESS_WARMUP_END           EventName = "LosslessWarmupEnd"
+)
+
+type LosslessEvent interface {
+	GetEventName() EventName
+	GetEventTime() string
+	GetClientId() string
+	SetClientId(string)
+	GetClientIp() string
+	SetClientIp(string)
+	GetClientType() string
+	GetNamespace() string
+	SetNamespace(string)
+	GetService() string
+	SetService(string)
+	GetHost() string
+	SetHost(string)
+	GetPort() int
+	SetPort(int)
+	String() string
+}
+
+type LosslessEventImpl struct {
+	EventName  EventName `json:"event_name"`
+	EventTime  string    `json:"event_time"`
+	ClientId   string    `json:"client_id"`
+	ClientIp   string    `json:"client_ip"`
+	ClientType string    `json:"client_type"`
+	Namespace  string    `json:"namespace"`
+	Service    string    `json:"service"`
+	Host       string    `json:"host"`
+	Port       int       `json:"port"`
+}
+
+func (e *LosslessEventImpl) GetEventName() EventName {
+	return e.EventName
+}
+
+func (e *LosslessEventImpl) GetEventTime() string {
+	return e.EventTime
+}
+
+func (e *LosslessEventImpl) GetClientId() string {
+	return e.ClientId
+}
+
+func (e *LosslessEventImpl) SetClientId(clientId string) {
+	e.ClientId = clientId
+}
+
+func (e *LosslessEventImpl) GetClientIp() string {
+	return e.ClientIp
+}
+
+func (e *LosslessEventImpl) SetClientIp(clientIp string) {
+	e.ClientIp = clientIp
+}
+
+func (e *LosslessEventImpl) GetClientType() string {
+	return e.ClientType
+}
+
+func (e *LosslessEventImpl) GetNamespace() string {
+	return e.Namespace
+}
+
+func (e *LosslessEventImpl) SetNamespace(namespace string) {
+	e.Namespace = namespace
+}
+
+func (e *LosslessEventImpl) GetService() string {
+	return e.Service
+}
+
+func (e *LosslessEventImpl) SetService(service string) {
+	e.Service = service
+}
+
+func (e *LosslessEventImpl) GetHost() string {
+	return e.Host
+}
+
+func (e *LosslessEventImpl) SetHost(host string) {
+	e.Host = host
+}
+
+func (e *LosslessEventImpl) GetPort() int {
+	return e.Port
+}
+
+func (e *LosslessEventImpl) SetPort(port int) {
+	e.Port = port
+}
+
+func (e *LosslessEventImpl) String() string {
+	return fmt.Sprintf("EventName: %s, EventTime: %s, ClientId: %s, ClientIp: %s, ClientType: %s, Namespace: %s, "+
+		"Service: %s, Host: %s, Port: %d", e.EventName, e.EventTime, e.ClientId, e.ClientIp, e.ClientType,
+		e.Namespace, e.Service, e.Host, e.Port)
 }

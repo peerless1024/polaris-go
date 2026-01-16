@@ -18,6 +18,7 @@
 package composite
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -63,8 +64,40 @@ func (p *LosslessController) Init(ctx *plugin.InitContext) error {
 	return nil
 }
 
-func (p *LosslessController) OnProcess(stopCh <-chan bool) {
-
+func (p *LosslessController) DelayRegisterChecker(port int) error {
+	if !p.losslessInfo.DelayRegisterEnabled {
+		log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, delay register checker not enabled")
+		return nil
+	}
+	switch p.losslessInfo.LosslessDelayRegisterConfig.Strategy {
+	case model.LosslessDelayRegisterStrategyDelayByTime:
+		time.Sleep(p.losslessInfo.LosslessDelayRegisterConfig.DelayRegisterInterval)
+		log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, delay register checker finished by "+
+			"time:%v(second)", p.losslessInfo.LosslessDelayRegisterConfig.DelayRegisterInterval)
+		return nil
+	case model.LosslessDelayRegisterStrategyDelayByHealthCheck:
+		// 循环进行健康检查，直到成功
+		for {
+			pass, err := doHealthCheck(port, p.losslessInfo.LosslessDelayRegisterConfig.HealthCheckConfig)
+			if err != nil {
+				log.GetBaseLogger().Errorf("[LosslessController] DelayRegisterChecker, health check failed, err: %v", err)
+				return err
+			}
+			if pass {
+				log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, health check success, " +
+					"start to do register")
+				return nil
+			}
+			log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, health check failed, " +
+				"wait for next check")
+			// 健康检查失败，等待下一个检查间隔后重试
+			time.Sleep(p.losslessInfo.LosslessDelayRegisterConfig.HealthCheckConfig.HealthCheckInterval)
+		}
+	default:
+		log.GetBaseLogger().Errorf("[LosslessController] DelayRegisterChecker, delay register strategy is not " +
+			"supported, skip delay register checker")
+		return fmt.Errorf("delay register strategy is not supported")
+	}
 }
 
 func (p *LosslessController) OnPreProcess(rule *model.ServiceRuleResponse) *model.LosslessInfo {
