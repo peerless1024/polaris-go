@@ -18,6 +18,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/crc64"
@@ -328,4 +329,12 @@ func CheckConfigFileMetadata(configFileMetadata ConfigFileMetadata) error {
 	}
 
 	return nil
+}
+
+func JsonString(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

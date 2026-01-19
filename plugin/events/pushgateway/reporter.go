@@ -22,14 +22,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/polarismesh/polaris-go/pkg/log"
-	"github.com/polarismesh/polaris-go/pkg/model"
-	"github.com/polarismesh/polaris-go/pkg/plugin"
-	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 	"io"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/polarismesh/polaris-go/pkg/log"
+	"github.com/polarismesh/polaris-go/pkg/model"
+	"github.com/polarismesh/polaris-go/pkg/model/event"
+	"github.com/polarismesh/polaris-go/pkg/plugin"
+	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 )
 
 const (
@@ -49,8 +51,8 @@ type PushgatewayReporter struct {
 	clientID string
 	once     sync.Once
 	cancel   context.CancelFunc
-	events   []model.BaseEvent
-	reqChan  chan model.BaseEvent
+	events   []event.BaseEvent
+	reqChan  chan event.BaseEvent
 
 	httpClient *http.Client
 	targetUrl  string
@@ -103,7 +105,7 @@ func (p *PushgatewayReporter) Init(ctx *plugin.InitContext) error {
 }
 
 // ReportEvent 数据记录在缓存中，定期1分钟上报
-func (p *PushgatewayReporter) ReportEvent(e model.BaseEvent) error {
+func (p *PushgatewayReporter) ReportEvent(e event.BaseEvent) error {
 	p.prepare()
 
 	select {
@@ -118,8 +120,8 @@ func (p *PushgatewayReporter) ReportEvent(e model.BaseEvent) error {
 func (p *PushgatewayReporter) prepare() {
 	p.once.Do(func() {
 		// 只有触发了Chain.ReportEvent，才需要初始化chan，启动接受协程（一次任务）
-		p.events = make([]model.BaseEvent, 0, p.cfg.EventQueueSize+1)
-		p.reqChan = make(chan model.BaseEvent, p.cfg.EventQueueSize+1)
+		p.events = make([]event.BaseEvent, 0, p.cfg.EventQueueSize+1)
+		p.reqChan = make(chan event.BaseEvent, p.cfg.EventQueueSize+1)
 
 		p.httpClient = &http.Client{Timeout: time.Second * 3}
 		if p.cfg.Address != "" {
@@ -178,18 +180,16 @@ func (p *PushgatewayReporter) Flush(isSync bool) {
 	}
 
 	var batchEvents BatchEvents
-	batchEvents.Batch = make([]model.ConfigEvent, 0, len(p.events))
+	batchEvents.Batch = make([]event.BaseEvent, 0, len(p.events))
 	for _, entry := range p.events {
 		// 刷新之前，填充SDK的公共数据
-		entry.GetConfigEvent().SetClientIp(p.clientIP)
-		entry.GetConfigEvent().SetClientId(p.clientID)
-		log.GetBaseLogger().Infof("[EventReporter][Pushgateway] new config event: %+v", entry.GetConfigEvent())
-
-		batchEvents.Batch = append(batchEvents.Batch, entry.GetConfigEvent())
-
+		entry.SetClientIp(p.clientIP)
+		entry.SetClientId(p.clientID)
+		log.GetBaseLogger().Infof("[EventReporter][Pushgateway] new event: {%+v}", model.JsonStr(entry))
+		batchEvents.Batch = append(batchEvents.Batch, entry)
 	}
 	// 重置p.events
-	p.events = make([]model.BaseEvent, 0, p.cfg.EventQueueSize+1)
+	p.events = make([]event.BaseEvent, 0, p.cfg.EventQueueSize+1)
 
 	flushHandler := func(batch BatchEvents) {
 		data, err := json.Marshal(batch)
@@ -236,5 +236,5 @@ func (p *PushgatewayReporter) Flush(isSync bool) {
 }
 
 type BatchEvents struct {
-	Batch []model.ConfigEvent
+	Batch []event.BaseEvent
 }

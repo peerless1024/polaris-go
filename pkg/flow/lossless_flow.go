@@ -20,33 +20,35 @@ package flow
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
+	"github.com/polarismesh/polaris-go/pkg/model/event"
+	"github.com/polarismesh/polaris-go/pkg/plugin/events"
 )
 
 // SyncLosslessRegister 同步进行服务注册
 func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (*model.InstanceRegisterResponse,
 	error) {
-	// TODO 加上事件记录和状态
 	losslessRule, err := e.SyncGetServiceRule(model.EventLosslessRule, &model.GetServiceRuleRequest{
 		Namespace: instance.Namespace,
 		Service:   instance.Service,
 	})
 	if err != nil {
-		log.GetBaseLogger().Errorf("SyncLosslessRegister SyncGetServiceRule error: %v", err)
+		log.GetBaseLogger().Errorf("[Lossless Event] SyncLosslessRegister SyncGetServiceRule error: %v", err)
 		return nil, err
 	}
-	log.GetBaseLogger().Infof("SyncLosslessRegister SyncGetServiceRule success: %v", losslessRule)
+	log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister SyncGetServiceRule success: %v", losslessRule)
 	// 当lossless为nil时, 说明本地未开启无损上下线功能插件, 直接注册
 	if e.lossless == nil || losslessRule == nil || losslessRule.Value == nil {
-		log.GetBaseLogger().Infof("SyncLosslessRegister lossless is not enable, register directly")
+		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister lossless is not enable, register directly")
 		return e.SyncRegister(instance)
 	}
 	effectiveRule := e.lossless.OnPreProcess(losslessRule)
 	if effectiveRule == nil {
 		err = fmt.Errorf("SyncLosslessRegister OnPreProcess return nil")
-		log.GetBaseLogger().Errorf("SyncLosslessRegister OnPreProcess error: %v", err)
+		log.GetBaseLogger().Errorf("[Lossless Event] SyncLosslessRegister OnPreProcess error: %v", err)
 		return nil, err
 	}
 	if effectiveRule.ReadinessProbe != nil || effectiveRule.OfflineProbe != nil {
@@ -61,17 +63,33 @@ func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (
 		// 启动无损上下线接口
 		go e.admin.Run()
 	}
-	if !effectiveRule.DelayRegisterEnabled {
-		log.GetBaseLogger().Infof("SyncLosslessRegister delayRegisterEnabled is false, register directly")
+	if !effectiveRule.IsDelayRegisterEnabled() {
+		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister delayRegisterEnabled is false, register directly")
 		return e.SyncRegister(instance)
 	}
+	// 上报无损上下线事件, 无损上线开始
+	events.ReportEvent(e.eventChain, event.GetLosslessEvent(event.LosslessOnlineStart, instance, effectiveRule))
 	// 延迟注册检查
 	err = e.lossless.DelayRegisterChecker(instance.Port)
 	if err != nil {
-		log.GetBaseLogger().Errorf("SyncLosslessRegister DelayRegisterChecker error: %v", err)
+		log.GetBaseLogger().Errorf("[Lossless Event] SyncLosslessRegister DelayRegisterChecker error: %v", err)
 		return nil, err
 	}
-	return e.SyncRegister(instance)
+	resp, err := e.SyncRegister(instance)
+	if err != nil {
+		log.GetBaseLogger().Errorf("[Lossless Event] SyncLosslessRegister SyncRegister error: %v", err)
+		return resp, err
+	}
+	// 上报无损上下线事件, 无损上线结束
+	events.ReportEvent(e.eventChain, event.GetLosslessEvent(event.LosslessOnlineEnd, instance, effectiveRule))
+	if effectiveRule.IsWarmUpEnabled() {
+		go func() {
+			events.ReportEvent(e.eventChain, event.GetLosslessEvent(event.LosslessWarmupStart, instance, effectiveRule))
+			time.Sleep(effectiveRule.WarmUpConfig.Interval)
+			events.ReportEvent(e.eventChain, event.GetLosslessEvent(event.LosslessWarmupEnd, instance, effectiveRule))
+		}()
+	}
+	return resp, nil
 }
 
 // 是否改成函数
@@ -86,11 +104,13 @@ func (e *Engine) losslessReadinessCheck() func(w http.ResponseWriter, r *http.Re
 // 是否改成函数
 func (e *Engine) losslessOfflineProcess(instance *model.InstanceRegisterRequest) func(w http.ResponseWriter, r *http.Request) {
 	HandlerFunc := func(w http.ResponseWriter, r *http.Request) {
-		if err := e.SyncDeregister(registerToDeregister(instance)); err == nil {
-			log.GetBaseLogger().Infof("losslessOfflineProcess SyncDeregister success")
+		deregisterReq := registerToDeregister(instance)
+		events.ReportEvent(e.eventChain, event.GetInstanceEvent(event.LosslessOfflineStart, deregisterReq))
+		if err := e.SyncDeregister(deregisterReq); err == nil {
+			log.GetBaseLogger().Infof("[Lossless Event] losslessOfflineProcess SyncDeregister success")
 			w.WriteHeader(http.StatusOK)
 		} else {
-			log.GetBaseLogger().Errorf("losslessOfflineProcess SyncDeregister error: %v", err)
+			log.GetBaseLogger().Errorf("[Lossless Event] losslessOfflineProcess SyncDeregister error: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}

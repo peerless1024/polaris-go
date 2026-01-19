@@ -22,7 +22,7 @@ import (
 )
 
 type AdminHandler struct {
-	Path        string
+	Path        string `json:"path"`
 	HandlerFunc func(http.ResponseWriter, *http.Request)
 }
 

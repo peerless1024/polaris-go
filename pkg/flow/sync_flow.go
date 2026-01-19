@@ -26,7 +26,9 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/flow/registerstate"
 	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
+	"github.com/polarismesh/polaris-go/pkg/model/event"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
+	"github.com/polarismesh/polaris-go/pkg/plugin/events"
 	"github.com/polarismesh/polaris-go/pkg/plugin/loadbalancer"
 	"github.com/polarismesh/polaris-go/pkg/plugin/servicerouter"
 )
@@ -408,6 +410,7 @@ func (e *Engine) SyncDeregister(instance *model.InstanceDeRegisterRequest) error
 		apiCallResult.SetFail(model.GetErrorCodeFromError(err), consumeTime)
 	} else {
 		apiCallResult.SetSuccess(consumeTime)
+		events.ReportEvent(e.eventChain, event.GetInstanceEvent(event.InstanceThreadEnd, instance))
 	}
 	return err
 }
