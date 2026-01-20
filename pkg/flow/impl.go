@@ -272,6 +272,18 @@ func (e *Engine) CircuitBreakerFlow() *CircuitBreakerFlow {
 	return e.circuitBreakerFlow
 }
 
+func (e *Engine) GetEventReportChain() interface{} {
+	return e.eventChain
+}
+
+func (e *Engine) GetAdmin() model.Admin {
+	return e.admin
+}
+
+func (e *Engine) GetRegisterState() model.RegisterState {
+	return e.registerStates
+}
+
 // ServiceEventCallback serviceUpdate消息订阅回调
 func (e *Engine) ServiceEventCallback(event *common.PluginEvent) error {
 	if e.subscribe != nil {

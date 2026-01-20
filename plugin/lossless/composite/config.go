@@ -36,6 +36,8 @@ const (
 	DefaultOfflinePath = "/offline"
 	// DefaultReadinessPath 默认就绪检查路径
 	DefaultReadinessPath = "/readiness"
+	// DefaultHealthCheckMaxRetry 默认健康检查最大重试次数
+	DefaultHealthCheckMaxRetry = 10
 )
 
 var supportedHealthCheckProtocols = map[string]struct{}{"HTTP": {}}
@@ -49,6 +51,8 @@ type Config struct {
 	HealthCheckMethod string `yaml:"healthCheckMethod" json:"healthCheckMethod"`
 	// HealthCheckPath 探测延迟注册的探测路径
 	HealthCheckPath string `yaml:"healthCheckPath" json:"healthCheckPath"`
+	// HealthCheckMaxRetry 探测延迟注册的探测最大重试次数
+	HealthCheckMaxRetry int `yaml:"healthCheckMaxRetry" json:"healthCheckMaxRetry"`
 	// OfflineProbeEnabled 是否开启无损下线preStop探测
 	OfflineProbeEnabled bool `yaml:"offlineProbeEnabled" json:"offlineProbeEnabled"`
 	// OfflinePath 无损下线preStop请求接口, 会请求反注册接口
@@ -108,6 +112,9 @@ func (c *Config) SetDefault() {
 	}
 	if c.ReadinessPath == "" {
 		c.ReadinessPath = DefaultReadinessPath
+	}
+	if c.HealthCheckMaxRetry == 0 {
+		c.HealthCheckMaxRetry = DefaultHealthCheckMaxRetry
 	}
 }
 

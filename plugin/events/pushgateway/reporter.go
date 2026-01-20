@@ -185,7 +185,7 @@ func (p *PushgatewayReporter) Flush(isSync bool) {
 		// 刷新之前，填充SDK的公共数据
 		entry.SetClientIp(p.clientIP)
 		entry.SetClientId(p.clientID)
-		log.GetBaseLogger().Infof("[EventReporter][Pushgateway] new event: {%+v}", model.JsonStr(entry))
+		log.GetBaseLogger().Infof("[EventReporter][Pushgateway] new event: {%+v}", model.JsonString(entry))
 		batchEvents.Batch = append(batchEvents.Batch, entry)
 	}
 	// 重置p.events

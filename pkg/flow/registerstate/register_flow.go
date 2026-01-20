@@ -68,6 +68,14 @@ func (c *RegisterStateManager) Destroy() {
 	}
 }
 
+func (c *RegisterStateManager) IsRegistered(instance *model.InstanceRegisterRequest) bool {
+	key := buildRegisterStateKey(instance.Namespace, instance.Service, instance.Host, instance.Port)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.states[key]
+	return ok
+}
+
 func (c *RegisterStateManager) PutRegister(instance *model.InstanceRegisterRequest, regis registerFunc, beat heartbeatFunc) (*registerState, bool) {
 	key := buildRegisterStateKey(instance.Namespace, instance.Service, instance.Host, instance.Port)
 	c.mu.Lock()

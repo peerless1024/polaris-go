@@ -18,7 +18,6 @@
 package composite
 
 import (
-	"fmt"
 	"strconv"
 	"time"
 
@@ -26,101 +25,30 @@ import (
 
 	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
-	"github.com/polarismesh/polaris-go/pkg/plugin"
-	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 )
 
-// LosslessController 无损上下线控制器
-type LosslessController struct {
-	*plugin.PluginBase
-	// pluginCtx
-	pluginCtx *plugin.InitContext
-	// pluginCfg 配置
-	pluginCfg *Config
-	// losslessInfo 无损上下线信息
-	losslessInfo *model.LosslessInfo
-}
-
-// Type 插件类型
-func (p *LosslessController) Type() common.Type {
-	return common.TypeLossless
-}
-
-// Name 插件名称
-func (p *LosslessController) Name() string {
-	return PluginName
-}
-
-// Init 初始化插件
-func (p *LosslessController) Init(ctx *plugin.InitContext) error {
-	p.PluginBase = plugin.NewPluginBase(ctx)
-	p.pluginCtx = ctx
-	// 加载配置
-	if conf := ctx.Config.GetProvider().GetLossless().GetPluginConfig(p.Name()); conf != nil {
-		p.pluginCfg = conf.(*Config)
-	}
-	p.losslessInfo = &model.LosslessInfo{}
-	log.GetBaseLogger().Infof("[LosslessController] plugin initialized, plugin config: %+v", p.pluginCfg)
-	return nil
-}
-
-func (p *LosslessController) DelayRegisterChecker(port int) error {
-	if p.losslessInfo.DelayRegisterConfig == nil {
-		log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, delay register checker not enabled")
-		return nil
-	}
-	switch p.losslessInfo.DelayRegisterConfig.Strategy {
-	case model.LosslessDelayRegisterStrategyDelayByTime:
-		time.Sleep(p.losslessInfo.DelayRegisterConfig.DelayRegisterInterval)
-		log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, delay register checker finished by "+
-			"time:%v(second)", p.losslessInfo.DelayRegisterConfig.DelayRegisterInterval)
-		return nil
-	case model.LosslessDelayRegisterStrategyDelayByHealthCheck:
-		// 循环进行健康检查，直到成功
-		for {
-			pass, err := doHealthCheck(port, p.losslessInfo.DelayRegisterConfig.HealthCheckConfig)
-			if err != nil {
-				log.GetBaseLogger().Errorf("[LosslessController] DelayRegisterChecker, health check failed, err: %v", err)
-				return err
-			}
-			if pass {
-				log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, health check success, " +
-					"start to do register")
-				return nil
-			}
-			log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, health check failed, " +
-				"wait for next check")
-			// 健康检查失败，等待下一个检查间隔后重试
-			time.Sleep(p.losslessInfo.DelayRegisterConfig.HealthCheckConfig.HealthCheckInterval)
-		}
-	default:
-		log.GetBaseLogger().Errorf("[LosslessController] DelayRegisterChecker, delay register strategy is not " +
-			"supported, skip delay register checker")
-		return fmt.Errorf("delay register strategy is not supported")
-	}
-}
-
-func (p *LosslessController) OnPreProcess(rule *model.ServiceRuleResponse) *model.LosslessInfo {
-	localLosslessConfig := p.pluginCtx.Config.GetProvider().GetLossless()
-	if !localLosslessConfig.IsEnable() {
-		log.GetBaseLogger().Infof("[LosslessController] parseRule, local lossless is not enable")
-		return nil
-	}
+func (p *LosslessController) PreProcess(instance *model.InstanceRegisterRequest,
+	rule *model.ServiceRuleResponse) {
+	defer func() {
+		log.GetBaseLogger().Infof("[LosslessController] PreProcess result: %v", p.losslessInfo.GetJsonString())
+	}()
+	p.losslessInfo.Instance = instance
 	// 远程配置优先级更高,如果远程配置不存在,则使用本地配置
-	if rule != nil && rule.Value != nil {
-		lossLessRule, ok := rule.Value.(*traffic_manage.LosslessRule)
-		if !ok {
-			// 解析远程规则失败,使用本地配置
-			p.parseLocalConfig()
-			log.GetBaseLogger().Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
-				"config, p.losslessInfo: %v", p.losslessInfo)
-			return p.losslessInfo
-		}
-		p.parseRemoteConfig(lossLessRule)
-		log.GetBaseLogger().Infof("[LosslessController] parseRule result: %v", model.JsonString(p.losslessInfo))
-		return p.losslessInfo
+	if rule == nil || rule.Value == nil {
+		log.GetBaseLogger().Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
+			"config, p.losslessInfo: %v", p.losslessInfo.GetJsonString())
+		p.parseLocalConfig()
+		return
 	}
-	return p.losslessInfo
+	lossLessRule, ok := rule.Value.(*traffic_manage.LosslessRule)
+	if !ok {
+		log.GetBaseLogger().Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
+			"config, p.losslessInfo: %v", p.losslessInfo)
+		// 解析远程规则失败,使用本地配置
+		p.parseLocalConfig()
+		return
+	}
+	p.parseRemoteConfig(lossLessRule)
 }
 
 func (p *LosslessController) parseRemoteConfig(lossLessRule *traffic_manage.LosslessRule) {
@@ -283,9 +211,4 @@ func (p *LosslessController) parseLocalOfflineConfig() {
 			Path: p.pluginCfg.OfflinePath,
 		}
 	}
-}
-
-// init 注册插件
-func init() {
-	plugin.RegisterConfigurablePlugin(&LosslessController{}, &Config{})
 }

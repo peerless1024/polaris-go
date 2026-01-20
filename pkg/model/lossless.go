@@ -18,7 +18,6 @@
 package model
 
 import (
-	"sync"
 	"time"
 )
 
@@ -35,11 +34,11 @@ var SupportedDelayRegisterStrategies = map[string]struct{}{
 }
 
 type LosslessInfo struct {
-	DelayRegisterConfig *DelayRegisterConfig `json:"delayRegisterConfig,omitempty"`
-	ReadinessProbe      *AdminHandler        `json:"readinessProbe,omitempty"`
-	OfflineProbe        *AdminHandler        `json:"offlineProbe,omitempty"`
-	WarmUpConfig        *WarmUpConfig        `json:"warmUpConfig,omitempty"`
-	RegisterStatuses    sync.Map             `json:"-"`
+	Instance            *InstanceRegisterRequest `json:"instance,omitempty"`
+	DelayRegisterConfig *DelayRegisterConfig     `json:"delayRegisterConfig,omitempty"`
+	ReadinessProbe      *AdminHandler            `json:"readinessProbe,omitempty"`
+	OfflineProbe        *AdminHandler            `json:"offlineProbe,omitempty"`
+	WarmUpConfig        *WarmUpConfig            `json:"warmUpConfig,omitempty"`
 }
 
 func (l *LosslessInfo) IsDelayRegisterEnabled() bool {
@@ -56,6 +55,13 @@ func (l *LosslessInfo) IsOfflineProbeEnabled() bool {
 
 func (l *LosslessInfo) IsWarmUpEnabled() bool {
 	return l != nil && l.WarmUpConfig != nil && l.WarmUpConfig.Interval > 0
+}
+
+func (l *LosslessInfo) GetJsonString() string {
+	if l == nil {
+		return ""
+	}
+	return JsonString(l)
 }
 
 type DelayRegisterConfig struct {

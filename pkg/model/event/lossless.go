@@ -25,25 +25,14 @@ import (
 
 type LosslessEvent interface {
 	InstanceEvent
-	GetLosslessInfo() *model.LosslessInfo
-	SetLosslessInfo(info *model.LosslessInfo)
 }
 
 type LosslessEventImpl struct {
 	InstanceEventImpl
-	LosslessInfo *model.LosslessInfo `json:"lossless_info,omitempty"`
+	LosslessInfo model.LosslessInfo `json:"lossless_info,omitempty"`
 }
 
-func (e *LosslessEventImpl) GetLosslessInfo() *model.LosslessInfo {
-	return e.LosslessInfo
-}
-
-func (e *LosslessEventImpl) SetLosslessInfo(info *model.LosslessInfo) {
-	e.LosslessInfo = info
-}
-
-func GetLosslessEvent(eventName EventName,
-	instance *model.InstanceRegisterRequest, losslessInfo *model.LosslessInfo) BaseEventImpl {
+func GetLosslessEvent(eventName EventName, losslessInfo model.LosslessInfo) BaseEventImpl {
 	return BaseEventImpl{
 		BaseType:  LosslessEventType,
 		EventType: LosslessEventType.EventTypeString(),
@@ -51,10 +40,10 @@ func GetLosslessEvent(eventName EventName,
 		EventTime: time.Now().Format("2006-01-02 15:04:05"),
 		LosslessEvent: &LosslessEventImpl{
 			InstanceEventImpl: InstanceEventImpl{
-				Namespace: instance.Namespace,
-				Service:   instance.Service,
-				Host:      instance.Host,
-				Port:      instance.Port,
+				Namespace: losslessInfo.Instance.Namespace,
+				Service:   losslessInfo.Instance.Service,
+				Host:      losslessInfo.Instance.Host,
+				Port:      losslessInfo.Instance.Port,
 			},
 			LosslessInfo: losslessInfo,
 		},

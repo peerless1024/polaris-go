@@ -15,23 +15,23 @@
  * specific language governing permissions and limitations under the License.
  */
 
-package lossless
+package composite
 
 import (
-	"github.com/polarismesh/polaris-go/pkg/model"
-	"github.com/polarismesh/polaris-go/pkg/plugin"
-	"github.com/polarismesh/polaris-go/pkg/plugin/common"
+	"time"
+
+	"github.com/polarismesh/polaris-go/pkg/log"
+	"github.com/polarismesh/polaris-go/pkg/model/event"
 )
 
-// Lossless 无损上下线策略接口
-type Lossless interface {
-	plugin.Plugin
-	PreProcess(*model.InstanceRegisterRequest, *model.ServiceRuleResponse)
-	Process() (*model.InstanceRegisterResponse, error)
-	PostProcess()
-}
-
-func init() {
-	// 注册插件接口类型
-	plugin.RegisterPluginInterface(common.TypeLossless, new(Lossless))
+func (p *LosslessController) PostProcess() {
+	if p.losslessInfo.IsWarmUpEnabled() {
+		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister WarmUpEnabled is true, warmUp interval: %v, "+
+			"start warm up", p.losslessInfo.WarmUpConfig.Interval)
+		p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupStart, p.losslessInfo))
+		time.Sleep(p.losslessInfo.WarmUpConfig.Interval)
+		p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupEnd, p.losslessInfo))
+	} else {
+		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister WarmUpEnabled is false, skip warm up")
+	}
 }
