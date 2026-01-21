@@ -35,6 +35,8 @@ const (
 	DefaultCacheLogLevel = DefaultLogLevel
 	// DefaultEventLogLevel 默认事件日志级别
 	DefaultEventLogLevel = DefaultLogLevel
+	// DefaultLosslessLogLevel 默认无损下线日志级别
+	DefaultLosslessLogLevel = DefaultLogLevel
 	// 默认基础日志名
 	baseLoggerName = "base"
 	// 默认统计日志名
@@ -49,6 +51,8 @@ const (
 	cacheLoggerName = "cache"
 	// 默认事件日志名
 	eventLoggerName = "event"
+	// 默认无损上下线日志名
+	losslessLoggerName = "lossless"
 )
 
 const (
@@ -76,6 +80,8 @@ const (
 	DefaultCacheLogRotationPath = "/cache/polaris-cache.log"
 	// DefaultEventLogRotationPath 默认事件日志滚动文件
 	DefaultEventLogRotationPath = "/event/polaris-event.log"
+	// DefaultLosslessLogRotationPath 默认无损上下线日志滚动文件
+	DefaultLosslessLogRotationPath = "/lossless/polaris-lossless.log"
 	// DefaultBaseLogRotationFile 默认基础日志滚动文件全路径
 	DefaultBaseLogRotationFile = DefaultLogRotationRootDir + DefaultBaseLogRotationPath
 	// DefaultStatLogRotationFile 默认统计日志滚动文件全路径
@@ -90,4 +96,6 @@ const (
 	DefaultCacheLogRotationFile = DefaultLogRotationRootDir + DefaultCacheLogRotationPath
 	// DefaultEventLogRotationFile 默认事件日志滚动文件全路径
 	DefaultEventLogRotationFile = DefaultLogRotationRootDir + DefaultEventLogRotationPath
+	// DefaultLosslessLogRotationFile 默认无损上下线日志滚动文件全路径
+	DefaultLosslessLogRotationFile = DefaultLogRotationRootDir + DefaultLosslessLogRotationPath
 )

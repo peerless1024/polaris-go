@@ -20,16 +20,15 @@ package losslessController
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/model/event"
 	"github.com/polarismesh/polaris-go/pkg/plugin/events"
 )
 
 func (p *LosslessController) Process() (*model.InstanceRegisterResponse, error) {
-	p.engine = p.pluginCtx.ValueCtx.GetEngine()
 	if p.engine == nil {
 		return nil, fmt.Errorf("failed to get engine from context")
 	}
@@ -37,7 +36,7 @@ func (p *LosslessController) Process() (*model.InstanceRegisterResponse, error) 
 		return nil, fmt.Errorf("instance is nil, PreProcess may not have been called")
 	}
 	if p.losslessInfo.IsDelayRegisterEnabled() {
-		log.GetBaseLogger().Infof("[LosslessController] Process, delay register enabled")
+		p.log.Infof("[LosslessController] Process, delay register enabled")
 		p.genAndRunGraceProbe()
 		p.reportEvent(event.GetLosslessEvent(event.LosslessOnlineStart, p.losslessInfo))
 		if err := p.delayRegisterChecker(); err != nil {
@@ -46,7 +45,7 @@ func (p *LosslessController) Process() (*model.InstanceRegisterResponse, error) 
 	}
 	resp, err := p.engine.SyncRegister(p.losslessInfo.Instance)
 	if err != nil {
-		log.GetBaseLogger().Errorf("[LosslessController] Process, register failed, err: %v", err)
+		p.log.Errorf("[LosslessController] Process, register failed, err: %v", err)
 		return nil, err
 	}
 	p.reportEvent(event.GetLosslessEvent(event.LosslessOnlineEnd, p.losslessInfo))
@@ -58,13 +57,13 @@ func (p *LosslessController) genAndRunGraceProbe() {
 	effectiveRule := p.losslessInfo
 	if effectiveRule.IsReadinessProbeEnabled() || effectiveRule.IsOfflineProbeEnabled() {
 		if effectiveRule.IsReadinessProbeEnabled() {
-			log.GetBaseLogger().Infof("[LosslessController] Process, readiness probe enabled")
-			effectiveRule.ReadinessProbe.HandlerFunc = genReadinessProbe(e, effectiveRule.Instance)
+			p.log.Infof("[LosslessController] Process, readiness probe enabled")
+			effectiveRule.ReadinessProbe.HandlerFunc = p.genReadinessProbe()
 			e.GetAdmin().RegisterHandler(effectiveRule.ReadinessProbe)
 		}
 		if effectiveRule.IsOfflineProbeEnabled() {
-			log.GetBaseLogger().Infof("[LosslessController] Process, offline probe enabled")
-			effectiveRule.OfflineProbe.HandlerFunc = genPreStopProbe(e, effectiveRule.Instance)
+			p.log.Infof("[LosslessController] Process, offline probe enabled")
+			effectiveRule.OfflineProbe.HandlerFunc = p.genPreStopProbe()
 			e.GetAdmin().RegisterHandler(effectiveRule.OfflineProbe)
 		}
 		// 启动无损上下线接口
@@ -73,11 +72,10 @@ func (p *LosslessController) genAndRunGraceProbe() {
 }
 
 func (p *LosslessController) delayRegisterChecker() error {
-	port := p.losslessInfo.Instance.Port
 	switch p.losslessInfo.DelayRegisterConfig.Strategy {
 	case model.LosslessDelayRegisterStrategyDelayByTime:
 		time.Sleep(p.losslessInfo.DelayRegisterConfig.DelayRegisterInterval)
-		log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, delay register checker finished by "+
+		p.log.Infof("[LosslessController] DelayRegisterChecker, delay register checker finished by "+
 			"time:%v(second)", p.losslessInfo.DelayRegisterConfig.DelayRegisterInterval)
 		return nil
 	case model.LosslessDelayRegisterStrategyDelayByHealthCheck:
@@ -85,62 +83,108 @@ func (p *LosslessController) delayRegisterChecker() error {
 		times := 0
 		for {
 			if times > p.pluginCfg.HealthCheckMaxRetry {
-				log.GetBaseLogger().Errorf("[LosslessController] DelayRegisterChecker, health check retry times "+
+				p.log.Errorf("[LosslessController] DelayRegisterChecker, health check retry times "+
 					"exceeded: %v", times)
 				return fmt.Errorf("health check retry times exceeded")
 			}
 			times++
-			pass, err := doHealthCheck(port, p.losslessInfo.DelayRegisterConfig.HealthCheckConfig)
+			pass, err := p.doHealthCheck()
 			if err != nil {
-				log.GetBaseLogger().Errorf("[LosslessController] DelayRegisterChecker, health check failed, err: %v", err)
+				p.log.Errorf("[LosslessController] DelayRegisterChecker, health check failed, err: %v", err)
 				return err
 			}
 			if pass {
-				log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, health check success, " +
+				p.log.Infof("[LosslessController] DelayRegisterChecker, health check success, " +
 					"start to do register")
 				return nil
 			}
-			log.GetBaseLogger().Infof("[LosslessController] DelayRegisterChecker, health check failed, " +
+			p.log.Infof("[LosslessController] DelayRegisterChecker, health check failed, " +
 				"wait for next check")
 			// 健康检查失败，等待下一个检查间隔后重试
 			time.Sleep(p.losslessInfo.DelayRegisterConfig.HealthCheckConfig.HealthCheckInterval)
 		}
 	default:
-		log.GetBaseLogger().Errorf("[LosslessController] DelayRegisterChecker, delay register strategy is not " +
+		p.log.Errorf("[LosslessController] DelayRegisterChecker, delay register strategy is not " +
 			"supported, skip delay register checker")
 		return fmt.Errorf("delay register strategy is not supported")
 	}
 }
 
-func genReadinessProbe(e model.Engine, instance *model.InstanceRegisterRequest) func(w http.
+// doHealthCheck 执行健康检查
+func (p *LosslessController) doHealthCheck() (bool, error) {
+	port := p.losslessInfo.Instance.Port
+	config := p.losslessInfo.DelayRegisterConfig.HealthCheckConfig
+	// 构建健康检查 URL
+	protocol := strings.ToLower(config.HealthCheckProtocol)
+	url := fmt.Sprintf("%s://localhost:%d%s", protocol, port, config.HealthCheckPath)
+
+	p.log.Debugf("[LosslessController] doHealthCheck, url: %s, method: %s",
+		url, config.HealthCheckMethod)
+
+	// 创建 HTTP 请求
+	req, err := http.NewRequest(config.HealthCheckMethod, url, nil)
+	if err != nil {
+		p.log.Errorf("[LosslessController] doHealthCheck, create request failed, err: %v", err)
+		return false, err
+	}
+
+	// 设置超时时间（使用检查间隔的一半作为超时时间，但最少1秒）
+	timeout := config.HealthCheckInterval / 2
+	if timeout < time.Second {
+		timeout = time.Second
+	}
+	client := &http.Client{
+		Timeout: timeout,
+	}
+
+	// 执行请求
+	resp, err := client.Do(req)
+	if err != nil {
+		p.log.Errorf("[LosslessController] doHealthCheck, request failed, err: %v", err)
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	// 判断响应状态码，2xx 表示健康检查成功
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		p.log.Infof("[LosslessController] doHealthCheck, health check success, statusCode: %d",
+			resp.StatusCode)
+		return true, nil
+	}
+	p.log.Errorf("[LosslessController] doHealthCheck, health check failed, statusCode: %d, need retry",
+		resp.StatusCode)
+	return false, nil
+}
+
+func (p *LosslessController) genReadinessProbe() func(w http.
 	ResponseWriter, r *http.Request) {
 	HandlerFunc := func(w http.ResponseWriter, r *http.Request) {
-		if e.GetRegisterState().IsRegistered(instance) {
-			log.GetBaseLogger().Infof("[Lossless Event] losslessReadinessCheck is registered")
+		if p.engine.GetRegisterState().IsRegistered(p.losslessInfo.Instance) {
+			p.log.Infof("[Lossless Event] losslessReadinessCheck is registered")
 			w.WriteHeader(http.StatusOK)
 		} else {
-			log.GetBaseLogger().Infof("[Lossless Event] losslessReadinessCheck is not registered")
+			p.log.Infof("[Lossless Event] losslessReadinessCheck is not registered")
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 	}
 	return HandlerFunc
 }
 
-func genPreStopProbe(e model.Engine, instance *model.InstanceRegisterRequest) func(w http.
+func (p *LosslessController) genPreStopProbe() func(w http.
 	ResponseWriter, r *http.Request) {
 	HandlerFunc := func(w http.ResponseWriter, r *http.Request) {
-		deregisterReq := registerToDeregister(instance)
-		eventChain, ok := e.GetEventReportChain().([]events.EventReporter)
+		deregisterReq := registerToDeregister(p.losslessInfo.Instance)
+		eventChain, ok := p.engine.GetEventReportChain().([]events.EventReporter)
 		if ok {
 			events.ReportEvent(eventChain, event.GetInstanceEvent(event.LosslessOfflineStart, deregisterReq))
 		} else {
-			log.GetBaseLogger().Errorf("[Lossless Event] GetEventReportChain type assertion failed")
+			p.log.Errorf("[Lossless Event] GetEventReportChain type assertion failed")
 		}
-		if err := e.SyncDeregister(deregisterReq); err == nil {
-			log.GetBaseLogger().Infof("[Lossless Event] losslessOfflineProcess SyncDeregister success")
+		if err := p.engine.SyncDeregister(deregisterReq); err == nil {
+			p.log.Infof("[Lossless Event] losslessOfflineProcess SyncDeregister success")
 			w.WriteHeader(http.StatusOK)
 		} else {
-			log.GetBaseLogger().Errorf("[Lossless Event] losslessOfflineProcess SyncDeregister error: %v", err)
+			p.log.Errorf("[Lossless Event] losslessOfflineProcess SyncDeregister error: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}

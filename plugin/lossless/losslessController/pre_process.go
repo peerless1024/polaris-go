@@ -23,26 +23,26 @@ import (
 
 	"github.com/polarismesh/specification/source/go/api/v1/traffic_manage"
 
-	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
 
 func (p *LosslessController) PreProcess(instance *model.InstanceRegisterRequest,
 	rule *model.ServiceRuleResponse) {
 	defer func() {
-		log.GetBaseLogger().Infof("[LosslessController] PreProcess result: %v", p.losslessInfo.GetJsonString())
+		p.log.Infof("[LosslessController] PreProcess result: %v", p.losslessInfo.GetJsonString())
 	}()
+	p.engine = p.pluginCtx.ValueCtx.GetEngine()
 	p.losslessInfo.Instance = instance
 	// 远程配置优先级更高,如果远程配置不存在,则使用本地配置
 	if rule == nil || rule.Value == nil {
-		log.GetBaseLogger().Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
+		p.log.Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
 			"config, p.losslessInfo: %v", p.losslessInfo.GetJsonString())
 		p.parseLocalConfig()
 		return
 	}
 	lossLessRule, ok := rule.Value.(*traffic_manage.LosslessRule)
 	if !ok {
-		log.GetBaseLogger().Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
+		p.log.Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
 			"config, p.losslessInfo: %v", p.losslessInfo)
 		// 解析远程规则失败,使用本地配置
 		p.parseLocalConfig()
@@ -60,14 +60,14 @@ func (p *LosslessController) parseRemoteConfig(lossLessRule *traffic_manage.Loss
 
 func (p *LosslessController) parseRemoteDelayRegisterConfig(lossLessRule *traffic_manage.LosslessRule) {
 	if lossLessRule.GetLosslessOnline() == nil || lossLessRule.GetLosslessOnline().GetDelayRegister() == nil {
-		log.GetBaseLogger().Infof("[LosslessController] parseRule, remote delayRegister is nil, fallback to parse local" +
+		p.log.Infof("[LosslessController] parseRule, remote delayRegister is nil, fallback to parse local" +
 			" config")
 		// 如果远程配置不存在,则使用本地配置
 		p.parseLocalDelayRegisterConfig()
 		return
 	}
 	if !lossLessRule.GetLosslessOnline().GetDelayRegister().GetEnable() {
-		log.GetBaseLogger().Infof("[LosslessController] parseRule, remote delayRegister is not enable")
+		p.log.Infof("[LosslessController] parseRule, remote delayRegister is not enable")
 		// 远程配置不开启延迟注册,则关闭延迟注册
 		p.losslessInfo.DelayRegisterConfig = nil
 		return
@@ -91,13 +91,13 @@ func (p *LosslessController) parseRemoteDelayRegisterConfig(lossLessRule *traffi
 				HealthCheckMethod:   p.pluginCfg.HealthCheckMethod,
 			}
 		} else {
-			log.GetBaseLogger().Errorf("[LosslessController] parseRule, parse healthCheckIntervalSecond:%v failed, "+
+			p.log.Errorf("[LosslessController] parseRule, parse healthCheckIntervalSecond:%v failed, "+
 				"err: %v, fallback to parse local config", lossLessRule.GetLosslessOnline().GetDelayRegister().
 				GetHealthCheckIntervalSecond(), err)
 			p.parseLocalDelayRegisterConfig()
 		}
 	default:
-		log.GetBaseLogger().Errorf("[LosslessController] parseRule, remote delayRegister strategy is not supported, " +
+		p.log.Errorf("[LosslessController] parseRule, remote delayRegister strategy is not supported, " +
 			"fall back to parse local config")
 		p.parseLocalDelayRegisterConfig()
 	}
@@ -105,7 +105,7 @@ func (p *LosslessController) parseRemoteDelayRegisterConfig(lossLessRule *traffi
 
 func (p *LosslessController) parseRemoteReadinessConfig(lossLessRule *traffic_manage.LosslessRule) {
 	if lossLessRule.GetLosslessOnline() == nil || lossLessRule.GetLosslessOnline().GetReadiness() == nil {
-		log.GetBaseLogger().Infof("[LosslessController] parseRule, remote readiness is nil, fallback to parse local " +
+		p.log.Infof("[LosslessController] parseRule, remote readiness is nil, fallback to parse local " +
 			"config")
 		// 如果远程配置不存在,则使用本地配置
 		p.parseLocalReadinessConfig()
@@ -123,7 +123,7 @@ func (p *LosslessController) parseRemoteReadinessConfig(lossLessRule *traffic_ma
 
 func (p *LosslessController) parseRemoteOfflineConfig(lossLessRule *traffic_manage.LosslessRule) {
 	if lossLessRule.GetLosslessOffline() == nil {
-		log.GetBaseLogger().Infof("[LosslessController] parseRule, remote offline is nil, fallback to parse local config")
+		p.log.Infof("[LosslessController] parseRule, remote offline is nil, fallback to parse local config")
 		// 如果远程配置不存在,则使用本地配置
 		p.parseLocalOfflineConfig()
 		return
@@ -141,7 +141,7 @@ func (p *LosslessController) parseRemoteOfflineConfig(lossLessRule *traffic_mana
 func (p *LosslessController) parseRemoteWarmupConfig(lossLessRule *traffic_manage.LosslessRule) {
 	if lossLessRule.GetLosslessOnline() == nil || lossLessRule.GetLosslessOnline().GetWarmup() == nil ||
 		lossLessRule.GetLosslessOnline().GetWarmup().GetIntervalSecond() == 0 {
-		log.GetBaseLogger().Infof("[LosslessController] parseRule, remote warmup is nil, fallback to parse local config")
+		p.log.Infof("[LosslessController] parseRule, remote warmup is nil, fallback to parse local config")
 		// 如果远程配置不存在, 直接返回
 		p.losslessInfo.WarmUpConfig = nil
 		return
@@ -186,12 +186,12 @@ func (p *LosslessController) parseLocalDelayRegisterConfig() {
 				},
 			}
 		default:
-			log.GetBaseLogger().Errorf("[LosslessController] local delayRegister strategy:%s is not recognized, "+
+			p.log.Errorf("[LosslessController] local delayRegister strategy:%s is not recognized, "+
 				"ignored delayRegisterConfig", localLosslessConfig.GetStrategy())
 			p.losslessInfo.DelayRegisterConfig = nil
 		}
 	} else {
-		log.GetBaseLogger().Errorf("[LosslessController] parseRule failed, local delayRegister strategy is not " +
+		p.log.Errorf("[LosslessController] parseRule failed, local delayRegister strategy is not " +
 			"supported, ignored delayRegisterConfig")
 		p.losslessInfo.DelayRegisterConfig = nil
 	}

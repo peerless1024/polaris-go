@@ -20,18 +20,17 @@ package losslessController
 import (
 	"time"
 
-	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model/event"
 )
 
 func (p *LosslessController) PostProcess() {
 	if p.losslessInfo.IsWarmUpEnabled() {
-		log.GetBaseLogger().Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is true, warmUp interval: %v, "+
+		p.log.Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is true, warmUp interval: %v, "+
 			"start warm up", p.losslessInfo.WarmUpConfig.Interval)
 		p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupStart, p.losslessInfo))
 		time.Sleep(p.losslessInfo.WarmUpConfig.Interval)
 		p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupEnd, p.losslessInfo))
 	} else {
-		log.GetBaseLogger().Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is false, skip warm up")
+		p.log.Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is false, skip warm up")
 	}
 }

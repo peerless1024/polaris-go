@@ -41,6 +41,7 @@ type LosslessController struct {
 	pluginCfg *Config
 	// losslessInfo 无损上下线信息
 	losslessInfo model.LosslessInfo
+	log          log.Logger
 }
 
 // Type 插件类型
@@ -62,23 +63,24 @@ func (p *LosslessController) Init(ctx *plugin.InitContext) error {
 		p.pluginCfg = conf.(*Config)
 	}
 	p.losslessInfo = model.LosslessInfo{}
-	log.GetBaseLogger().Infof("[LosslessController] plugin initialized, plugin config: %+v", p.pluginCfg)
+	p.log = log.GetLosslessLogger()
+	p.log.Infof("[LosslessController] plugin initialized, plugin config: %+v", p.pluginCfg)
 	return nil
 }
 
 func (p *LosslessController) reportEvent(eventInfo event.BaseEventImpl) {
 	if p.engine == nil || p.engine.GetEventReportChain() == nil {
-		log.GetBaseLogger().Errorf("[LosslessController] GetEventReportChain is nil")
+		p.log.Errorf("[LosslessController] GetEventReportChain is nil")
 		return
 	}
 	eventChain, ok := p.engine.GetEventReportChain().([]events.EventReporter)
 	if !ok {
-		log.GetBaseLogger().Errorf("[LosslessController] GetEventReportChain type assertion failed")
+		p.log.Errorf("[LosslessController] GetEventReportChain type assertion failed")
 		return
 	}
 	for _, chain := range eventChain {
 		if err := chain.ReportEvent(&eventInfo); err != nil {
-			log.GetBaseLogger().Errorf("[LosslessController] report event(%s) err: %+v", eventInfo, err)
+			p.log.Errorf("[LosslessController] report event(%s) err: %+v", eventInfo, err)
 			continue
 		}
 	}
