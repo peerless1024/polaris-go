@@ -61,6 +61,8 @@ const (
 	DefaultNetworkLogLevel = log.DefaultNetworkLogLevel
 	// DefaultCacheLogLevel 默认缓存日志级别
 	DefaultCacheLogLevel = log.DefaultCacheLogLevel
+	// DefaultEventLogLevel 默认事件日志级别
+	DefaultEventLogLevel = log.DefaultEventLogLevel
 )
 
 // SetBaseLogger 设置基础日志对象
@@ -113,6 +115,16 @@ func GetCacheLogger() Logger {
 	return log.GetCacheLogger()
 }
 
+// SetEventLogger 设置事件日志对象
+func SetEventLogger(logger Logger) {
+	log.SetEventLogger(logger)
+}
+
+// GetEventLogger 获取事件日志对象
+func GetEventLogger() Logger {
+	return log.GetEventLogger()
+}
+
 // ConfigLoggers 全局配置日志对象
 func ConfigLoggers(logDir string, logLevel int) error {
 	var err error
@@ -133,6 +145,9 @@ func ConfigLoggers(logDir string, logLevel int) error {
 	}
 	if err = ConfigCacheLogger(logDir, logLevel); err != nil {
 		return fmt.Errorf("fail to ConfigCacheLogger: %v", err)
+	}
+	if err = ConfigEventLogger(logDir, logLevel); err != nil {
+		return fmt.Errorf("fail to ConfigEventLogger: %v", err)
 	}
 	return nil
 }
@@ -173,6 +188,12 @@ func ConfigCacheLogger(logDir string, logLevel int) error {
 	return log.ConfigCacheLogger(log.DefaultLogger, option)
 }
 
+// ConfigEventLogger 配置事件日志对象
+func ConfigEventLogger(logDir string, logLevel int) error {
+	option := log.CreateDefaultLoggerOptions(filepath.Join(logDir, log.DefaultEventLogRotationPath), logLevel)
+	return log.ConfigEventLogger(log.DefaultLogger, option)
+}
+
 // SetLoggersLevel 设置所有日志级别
 func SetLoggersLevel(loglevel int) error {
 	var err error
@@ -199,6 +220,10 @@ func SetLoggersLevel(loglevel int) error {
 	logErr = log.GetCacheLogger().SetLogLevel(loglevel)
 	if nil != logErr {
 		err = multierror.Append(err, multierror.Prefix(err, "fail to set cache logLevel"))
+	}
+	logErr = log.GetEventLogger().SetLogLevel(loglevel)
+	if nil != logErr {
+		err = multierror.Append(err, multierror.Prefix(err, "fail to set event logLevel"))
 	}
 	return err
 }
@@ -240,7 +265,13 @@ func SetLoggersDir(logDir string) error {
 		DefaultCacheLogLevel)
 	if err = log.ConfigCacheLogger(log.DefaultLogger, option); err != nil {
 		errs = multierror.Append(errs, multierror.Prefix(err,
-			fmt.Sprintf("fail to create default network logger with logDir %s", logDir)))
+			fmt.Sprintf("fail to create default cache logger with logDir %s", logDir)))
+	}
+	option = log.CreateDefaultLoggerOptions(filepath.Join(logDir, log.DefaultEventLogRotationPath),
+		DefaultEventLogLevel)
+	if err = log.ConfigEventLogger(log.DefaultLogger, option); err != nil {
+		errs = multierror.Append(errs, multierror.Prefix(err,
+			fmt.Sprintf("fail to create default event logger with logDir %s", logDir)))
 	}
 	return errs
 }

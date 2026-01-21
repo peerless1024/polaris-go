@@ -56,6 +56,7 @@ type PushgatewayReporter struct {
 
 	httpClient *http.Client
 	targetUrl  string
+	log        log.Logger
 }
 
 func init() {
@@ -100,7 +101,7 @@ func (p *PushgatewayReporter) Init(ctx *plugin.InitContext) error {
 	if cfgValue != nil {
 		p.cfg = cfgValue.(*Config)
 	}
-
+	p.log = log.GetEventLogger()
 	return nil
 }
 
@@ -143,9 +144,9 @@ func (p *PushgatewayReporter) prepare() {
 				case <-ticker.C:
 					p.Flush(false)
 				case <-ctx.Done():
-					log.GetBaseLogger().Infof("[EventReporter][Pushgateway] receive destroy signal, flush events")
+					p.log.Infof("[EventReporter][Pushgateway] receive destroy signal, flush events")
 					p.Flush(true) // 退出之前同步flush数据
-					log.GetBaseLogger().Infof("[EventReporter][Pushgateway] pushgateway reporter is stopping")
+					p.log.Infof("[EventReporter][Pushgateway] pushgateway reporter is stopping")
 					return
 				}
 			}
@@ -185,7 +186,7 @@ func (p *PushgatewayReporter) Flush(isSync bool) {
 		// 刷新之前，填充SDK的公共数据
 		entry.SetClientIp(p.clientIP)
 		entry.SetClientId(p.clientID)
-		log.GetBaseLogger().Infof("[EventReporter][Pushgateway] new event: {%+v}", model.JsonString(entry))
+		p.log.Infof("[EventReporter][Pushgateway] new event: %v", model.JsonString(entry))
 		batchEvents.Batch = append(batchEvents.Batch, entry)
 	}
 	// 重置p.events
@@ -194,19 +195,19 @@ func (p *PushgatewayReporter) Flush(isSync bool) {
 	flushHandler := func(batch BatchEvents) {
 		data, err := json.Marshal(batch)
 		if err != nil {
-			log.GetBaseLogger().Errorf("[EventReporter][Pushgateway] marshal data(%+v) err: %+v", batchEvents, err)
+			p.log.Errorf("[EventReporter][Pushgateway] marshal data(%+v) err: %+v", batchEvents, err)
 			return
 		}
 
 		dataBuffer := bytes2.NewBuffer(data)
 		targetUrl, err := p.getTargetUrl()
 		if err != nil {
-			log.GetBaseLogger().Warnf("[EventReporter][Pushgateway] not found target event server addr, ignore it. %s", err.Error())
+			p.log.Warnf("[EventReporter][Pushgateway] not found target event server addr, ignore it. %s", err.Error())
 			return
 		}
 		req, err := http.NewRequest(http.MethodPost, targetUrl, dataBuffer)
 		if err != nil {
-			log.GetBaseLogger().Errorf("[EventReporter][Pushgateway] new request err: %+v", err)
+			p.log.Errorf("[EventReporter][Pushgateway] new request err: %+v", err)
 			return
 		}
 
@@ -221,7 +222,8 @@ func (p *PushgatewayReporter) Flush(isSync bool) {
 			}
 		}
 		if respErr != nil {
-			log.GetBaseLogger().Errorf("[EventReporter][Pushgateway] do request err: %+v, code: %d, resp: %s", respErr, respCode, respBuffer.String())
+			p.log.Errorf("[EventReporter][Pushgateway] do request err: %+v, code: %d, resp: %s", respErr, respCode,
+				respBuffer.String())
 			return
 		}
 	}

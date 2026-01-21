@@ -26,12 +26,12 @@ import (
 
 func (p *LosslessController) PostProcess() {
 	if p.losslessInfo.IsWarmUpEnabled() {
-		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister WarmUpEnabled is true, warmUp interval: %v, "+
+		log.GetBaseLogger().Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is true, warmUp interval: %v, "+
 			"start warm up", p.losslessInfo.WarmUpConfig.Interval)
 		p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupStart, p.losslessInfo))
 		time.Sleep(p.losslessInfo.WarmUpConfig.Interval)
 		p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupEnd, p.losslessInfo))
 	} else {
-		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister WarmUpEnabled is false, skip warm up")
+		log.GetBaseLogger().Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is false, skip warm up")
 	}
 }
