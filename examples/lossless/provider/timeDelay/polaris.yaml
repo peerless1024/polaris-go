@@ -3,6 +3,7 @@ global:
     addresses:
       - ${POLARIS_SERVER}:8091
     token: ${POLARIS_TOKEN}
+    connectTimeout: 1000ms
   eventReporter:
     enable: true
     chain:
@@ -13,26 +14,16 @@ provider:
   lossless:
     # 是否启用无损上下线
     enable: true
-    chain:
-      # 延迟注册插件
-      - delayRegister
-      # 接口探针插件
-      - graceProbe
+    # 无损上下线插件类型
+    type: losslessController
+    # 无损上线延迟注册策略
+    strategy: DELAY_BY_TIME
+    # 时长延迟注册的等待时间
+    delayRegisterInterval: 10s
+    # 探测延迟注册的探测周期
+    healthCheckInterval: 5s
     plugin:
-      # 无损上线延迟注册插件配置
-      delayRegister:
-        # 无损上线延迟注册策略
-        # 类型:string
-        # 范围:时长延迟(DELAY_BY_TIME), 探测延迟(DELAY_BY_HEALTH_CHECK)
-        # 默认值:DELAY_BY_TIME
-        strategy: DELAY_BY_TIME
-        # 时长延迟注册的等待时间, 兜底延迟多久会进行上线
-        delayRegisterInterval: 10s
-      # 无损下线preStop插件配置
-      graceProbe:
-        # 无损下线preStop插件的探测路径
-        preDeregisterPath: /offline
-        # 无损上线就绪检查的探测路径
-        readinessPath: /readiness
-        # 无损上下线探测端口
-        port: 28080
+      losslessController:
+        healthCheckProtocol: "HTTP"
+        healthCheckMethod: "GET"
+        healthCheckPath: "/health"

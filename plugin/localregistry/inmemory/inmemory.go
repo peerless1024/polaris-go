@@ -165,6 +165,7 @@ func (g *LocalCache) Init(ctx *plugin.InitContext) error {
 	g.eventToCacheHandlers[model.EventRateLimiting] = g.newRateLimitCacheHandler()
 	g.eventToCacheHandlers[model.EventCircuitBreaker] = g.newCircuitBreakerCacheHandler()
 	g.eventToCacheHandlers[model.EventFaultDetect] = g.newFaultDetectCacheHandler()
+	g.eventToCacheHandlers[model.EventLossless] = g.newLosslessCacheHandler()
 	// 批量服务
 	g.eventToCacheHandlers[model.EventServices] = g.newServicesHandler()
 	g.cacheFromPersistAvailableInterval = ctx.Config.GetConsumer().GetLocalCache().GetPersistAvailableInterval()
@@ -763,6 +764,15 @@ func (g *LocalCache) newCircuitBreakerCacheHandler() CacheHandlers {
 
 // 创建探测规则缓存操作回调集合
 func (g *LocalCache) newFaultDetectCacheHandler() CacheHandlers {
+	return CacheHandlers{
+		CompareMessage:      compareResource,
+		MessageToCacheValue: messageToServiceRule,
+		OnEventDeleted:      g.deleteRule,
+	}
+}
+
+// 创建无损上下线规则缓存操作回调集合
+func (g *LocalCache) newLosslessCacheHandler() CacheHandlers {
 	return CacheHandlers{
 		CompareMessage:      compareResource,
 		MessageToCacheValue: messageToServiceRule,

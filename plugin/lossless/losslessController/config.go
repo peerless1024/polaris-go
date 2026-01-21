@@ -15,7 +15,7 @@
  * specific language governing permissions and limitations under the License.
  */
 
-package composite
+package losslessController
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ import (
 
 const (
 	// PluginName 插件名称
-	PluginName = "composite"
+	PluginName = "losslessController"
 
 	// DefaultHealthCheckProtocol 默认健康检查协议
 	DefaultHealthCheckProtocol = "HTTP"

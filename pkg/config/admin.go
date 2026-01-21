@@ -24,14 +24,6 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 )
 
-// 默认Admin配置常量
-const (
-	// DefaultAdminHost 默认Admin监听地址
-	DefaultAdminHost = "0.0.0.0"
-	// DefaultAdminPort 默认Admin监听端口
-	DefaultAdminPort = 28080
-)
-
 // Ensure AdminConfigImpl implements AdminConfig
 var _ AdminConfig = (*AdminConfigImpl)(nil)
 
@@ -123,6 +115,9 @@ func (a *AdminConfigImpl) SetDefault() {
 	}
 	if a.Port == 0 {
 		a.Port = DefaultAdminPort
+	}
+	if a.Type == "" {
+		a.Type = DefaultAdminType
 	}
 	a.Plugin.SetDefault(common.TypeAdmin)
 }

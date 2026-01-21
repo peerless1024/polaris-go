@@ -1,4 +1,4 @@
-module github.com/polarismesh/polaris-go-quickstart-provider
+module github.com/polarismesh/polaris-go/examples/lossless/provider/timeDelay
 
 go 1.24
 

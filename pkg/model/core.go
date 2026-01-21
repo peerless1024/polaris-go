@@ -41,8 +41,8 @@ const (
 	EventFaultDetect EventType = 0x2007
 	//EventNearbyRouteRule 就近路由事件
 	EventNearbyRouteRule EventType = 0x2008
-	// EventLosslessRule 无损上下线规则
-	EventLosslessRule EventType = 0x2009
+	// EventLossless 无损上下线规则
+	EventLossless EventType = 0x2009
 )
 
 // RegistryValue 存储于sdk缓存中的对象，包括服务实例和服务路由
@@ -77,7 +77,7 @@ var (
 		EventCircuitBreaker:  "circuit_breaker",
 		EventFaultDetect:     "fault_detect",
 		EventNearbyRouteRule: "nearby_route_rule",
-		EventLosslessRule:    "lossless_rule",
+		EventLossless:        "lossless",
 	}
 
 	presentToEventType = map[string]EventType{
@@ -88,7 +88,7 @@ var (
 		"circuit_breaker":   EventCircuitBreaker,
 		"fault_detect":      EventFaultDetect,
 		"nearby_route_rule": EventNearbyRouteRule,
-		"lossless_rule":     EventLosslessRule,
+		"lossless":          EventLossless,
 	}
 )
 

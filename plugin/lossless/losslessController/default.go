@@ -15,7 +15,7 @@
  * specific language governing permissions and limitations under the License.
  */
 
-package composite
+package losslessController
 
 import (
 	"github.com/polarismesh/polaris-go/pkg/log"
@@ -57,7 +57,6 @@ func (p *LosslessController) Name() string {
 func (p *LosslessController) Init(ctx *plugin.InitContext) error {
 	p.PluginBase = plugin.NewPluginBase(ctx)
 	p.pluginCtx = ctx
-	p.engine = ctx.ValueCtx.GetEngine()
 	// 加载配置
 	if conf := ctx.Config.GetProvider().GetLossless().GetPluginConfig(p.Name()); conf != nil {
 		p.pluginCfg = conf.(*Config)
@@ -68,6 +67,10 @@ func (p *LosslessController) Init(ctx *plugin.InitContext) error {
 }
 
 func (p *LosslessController) reportEvent(eventInfo event.BaseEventImpl) {
+	if p.engine == nil || p.engine.GetEventReportChain() == nil {
+		log.GetBaseLogger().Errorf("[EventReporter] GetEventReportChain is nil")
+		return
+	}
 	eventChain, ok := p.engine.GetEventReportChain().([]events.EventReporter)
 	if !ok {
 		log.GetBaseLogger().Errorf("[EventReporter] GetEventReportChain type assertion failed")

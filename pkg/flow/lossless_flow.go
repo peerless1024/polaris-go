@@ -25,7 +25,7 @@ import (
 // SyncLosslessRegister 同步进行服务注册
 func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (*model.InstanceRegisterResponse,
 	error) {
-	losslessRule, err := e.SyncGetServiceRule(model.EventLosslessRule, &model.GetServiceRuleRequest{
+	losslessRule, err := e.SyncGetServiceRule(model.EventLossless, &model.GetServiceRuleRequest{
 		Namespace: instance.Namespace,
 		Service:   instance.Service,
 	})
@@ -35,7 +35,7 @@ func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (
 	}
 	log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister SyncGetServiceRule success: %v", losslessRule)
 	// 当lossless为nil时, 说明本地未开启无损上下线功能插件, 直接注册
-	if e.lossless == nil || losslessRule == nil || losslessRule.Value == nil {
+	if e.lossless == nil {
 		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister lossless is not enable, register directly")
 		return e.SyncRegister(instance)
 	}

@@ -15,7 +15,7 @@
  * specific language governing permissions and limitations under the License.
  */
 
-package composite
+package losslessController
 
 import (
 	"fmt"
@@ -29,6 +29,13 @@ import (
 )
 
 func (p *LosslessController) Process() (*model.InstanceRegisterResponse, error) {
+	p.engine = p.pluginCtx.ValueCtx.GetEngine()
+	if p.engine == nil {
+		return nil, fmt.Errorf("failed to get engine from context")
+	}
+	if p.losslessInfo.Instance == nil {
+		return nil, fmt.Errorf("instance is nil, PreProcess may not have been called")
+	}
 	if p.losslessInfo.IsDelayRegisterEnabled() {
 		log.GetBaseLogger().Infof("[LosslessController] Process, delay register enabled")
 		p.genAndRunGraceProbe()

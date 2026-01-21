@@ -237,8 +237,15 @@ const (
 	// DefaultLimiterService 默认的限流服务
 	DefaultLimiterService string = "polaris.limiter"
 
+	// DefaultAdminHost 默认Admin监听地址
+	DefaultAdminHost = "0.0.0.0"
+	// DefaultAdminPort 默认Admin监听端口
+	DefaultAdminPort = 28080
+	// DefaultAdminType 默认Admin插件类型
+	DefaultAdminType = "httpServer"
+
 	// DefaultLosslessType 默认无损上下线插件类型
-	DefaultLosslessType string = "composite"
+	DefaultLosslessType string = "losslessController"
 	// DefaultLosslessDelayRegisterInterval 默认延迟注册间隔 30 秒
 	DefaultLosslessDelayRegisterInterval = 30 * time.Second
 	// DefaultLosslessHealthCheckInterval 默认健康检查间隔 5 秒

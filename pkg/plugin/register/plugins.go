@@ -49,7 +49,7 @@ import (
 	_ "github.com/polarismesh/polaris-go/plugin/localregistry/inmemory"
 	_ "github.com/polarismesh/polaris-go/plugin/location"
 	_ "github.com/polarismesh/polaris-go/plugin/logger/zaplog"
-	_ "github.com/polarismesh/polaris-go/plugin/lossless/composite"
+	_ "github.com/polarismesh/polaris-go/plugin/lossless/losslessController"
 	_ "github.com/polarismesh/polaris-go/plugin/metrics/prometheus"
 	_ "github.com/polarismesh/polaris-go/plugin/ratelimiter/reject"
 	_ "github.com/polarismesh/polaris-go/plugin/ratelimiter/unirate"
