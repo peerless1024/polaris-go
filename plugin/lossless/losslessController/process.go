@@ -25,7 +25,6 @@ import (
 
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/model/event"
-	"github.com/polarismesh/polaris-go/pkg/plugin/events"
 )
 
 func (p *LosslessController) Process() (*model.InstanceRegisterResponse, error) {
@@ -174,14 +173,10 @@ func (p *LosslessController) genPreStopProbe() func(w http.
 	ResponseWriter, r *http.Request) {
 	HandlerFunc := func(w http.ResponseWriter, r *http.Request) {
 		deregisterReq := registerToDeregister(p.losslessInfo.Instance)
-		eventChain, ok := p.engine.GetEventReportChain().([]events.EventReporter)
-		if ok {
-			events.ReportEvent(eventChain, event.GetInstanceEvent(event.LosslessOfflineStart, deregisterReq))
-		} else {
-			p.log.Errorf("[Lossless Event] GetEventReportChain type assertion failed")
-		}
+		p.reportEvent(event.GetLosslessEvent(event.LosslessOfflineStart, p.losslessInfo))
 		if err := p.engine.SyncDeregister(deregisterReq); err == nil {
 			p.log.Infof("[Lossless Event] losslessOfflineProcess SyncDeregister success")
+			p.reportEvent(event.GetLosslessEvent(event.InstanceThreadEnd, p.losslessInfo))
 			w.WriteHeader(http.StatusOK)
 		} else {
 			p.log.Errorf("[Lossless Event] losslessOfflineProcess SyncDeregister error: %v", err)

@@ -35,14 +35,14 @@ func (p *LosslessController) PreProcess(instance *model.InstanceRegisterRequest,
 	p.losslessInfo.Instance = instance
 	// 远程配置优先级更高,如果远程配置不存在,则使用本地配置
 	if rule == nil || rule.Value == nil {
-		p.log.Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
+		p.log.Infof("[LosslessController] LosslessRule value is nil, fallback to parse local "+
 			"config, p.losslessInfo: %v", p.losslessInfo.GetJsonString())
 		p.parseLocalConfig()
 		return
 	}
 	lossLessRule, ok := rule.Value.(*traffic_manage.LosslessRule)
 	if !ok {
-		p.log.Infof("[LosslessController] parseRule find not LosslessRule, fallback to parse local "+
+		p.log.Infof("[LosslessController] rule is not LosslessRule, fallback to parse local "+
 			"config, p.losslessInfo: %v", p.losslessInfo)
 		// 解析远程规则失败,使用本地配置
 		p.parseLocalConfig()

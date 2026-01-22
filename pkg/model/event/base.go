@@ -20,6 +20,8 @@ package event
 type BaseEvent interface {
 	SetClientIp(ip string)
 	SetClientId(id string)
+	GetEventType() string
+	GetEventName() EventName
 	GetInstanceEvent() InstanceEvent
 	GetConfigEvent() ConfigEvent
 	GetLosslessEvent() LosslessEvent
@@ -84,6 +86,14 @@ func (c *BaseEventImpl) SetClientIp(ip string) {
 
 func (c *BaseEventImpl) SetClientId(id string) {
 	c.ClientId = id
+}
+
+func (c *BaseEventImpl) GetEventType() string {
+	return c.EventType
+}
+
+func (c *BaseEventImpl) GetEventName() EventName {
+	return c.EventName
 }
 
 func (c *BaseEventImpl) GetInstanceEvent() InstanceEvent {

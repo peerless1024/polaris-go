@@ -18,9 +18,7 @@
 package events
 
 import (
-	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
-	"github.com/polarismesh/polaris-go/pkg/model/event"
 	"github.com/polarismesh/polaris-go/pkg/plugin"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 )
@@ -35,15 +33,6 @@ type Proxy struct {
 func (p *Proxy) SetRealPlugin(plug plugin.Plugin, engine model.Engine) {
 	p.EventReporter = plug.(EventReporter)
 	p.engine = engine
-}
-
-func ReportEvent(eventChain []EventReporter, eventInfo event.BaseEventImpl) {
-	for _, chain := range eventChain {
-		if err := chain.ReportEvent(&eventInfo); err != nil {
-			log.GetBaseLogger().Errorf("[EventReporter] report event(%s) err: %+v", eventInfo, err)
-			continue
-		}
-	}
 }
 
 func init() {

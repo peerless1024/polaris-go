@@ -138,7 +138,7 @@ func (c *RegisterStateManager) runHeartbeat(ctx context.Context, state *register
 			}
 			start := time.Now()
 			if err := beat(hbReq); err != nil {
-				log.GetBaseLogger().Errorf("[Provider][Heartbeat] heartbeat failed {%s, %s, %s:%d}",
+				log.GetBaseLogger().Errorf("[Provider][Heartbeat] heartbeat failed {%s, %s, %s:%d}, err: %v",
 					instance.Namespace, instance.Service, instance.Host, instance.Port, err)
 				errCnt++
 
@@ -151,7 +151,8 @@ func (c *RegisterStateManager) runHeartbeat(ctx context.Context, state *register
 						log.GetBaseLogger().Infof("[Provider][Heartbeat] re-register instatnce success {%s, %s, %s:%d}",
 							instance.Namespace, instance.Service, instance.Host, instance.Port)
 					} else {
-						log.GetBaseLogger().Warnf("[Provider][Heartbeat] re-register instatnce failed {%s, %s, %s:%d}",
+						log.GetBaseLogger().Warnf("[Provider][Heartbeat] re-register instatnce failed {%s, %s, "+
+							"%s:%d}, err: %v",
 							instance.Namespace, instance.Service, instance.Host, instance.Port, err)
 					}
 				}

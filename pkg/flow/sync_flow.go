@@ -28,7 +28,6 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/model/event"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
-	"github.com/polarismesh/polaris-go/pkg/plugin/events"
 	"github.com/polarismesh/polaris-go/pkg/plugin/loadbalancer"
 	"github.com/polarismesh/polaris-go/pkg/plugin/servicerouter"
 )
@@ -410,9 +409,20 @@ func (e *Engine) SyncDeregister(instance *model.InstanceDeRegisterRequest) error
 		apiCallResult.SetFail(model.GetErrorCodeFromError(err), consumeTime)
 	} else {
 		apiCallResult.SetSuccess(consumeTime)
-		events.ReportEvent(e.eventChain, event.GetInstanceEvent(event.InstanceThreadEnd, instance))
+		e.reportEvent(event.GetInstanceEvent(event.InstanceThreadEnd, instance))
+		log.GetBaseLogger().Infof("SyncDeregister success----->")
 	}
 	return err
+}
+
+func (e *Engine) reportEvent(eventInfo event.BaseEventImpl) {
+	for _, chain := range e.eventChain {
+		if err := chain.ReportEvent(&eventInfo); err != nil {
+			log.GetBaseLogger().Errorf("[LosslessController] report event(%s) err: %+v", model.JsonString(eventInfo),
+				err)
+			continue
+		}
+	}
 }
 
 // SyncHeartbeat 同步进行心跳上报

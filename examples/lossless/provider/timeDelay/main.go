@@ -89,8 +89,12 @@ func (svr *PolarisProvider) runWebServer() {
 		log.Printf("[INFO] start http server, listen port is %v", svr.port)
 		svr.webSvr = &http.Server{Handler: nil}
 		if err := svr.webSvr.Serve(ln); err != nil {
-			svr.isShutdown = false
-			log.Fatalf("[ERROR]fail to run webServer, err is %v", err)
+			if !svr.isShutdown {
+				log.Fatalf("[ERROR]fail to run webServer, err is %v", err)
+			} else {
+				// 正常关闭时，只打印日志，不要 Fatalf
+				log.Printf("[ERROR]fail to run webServer, err is %v", err)
+			}
 		}
 	}()
 }

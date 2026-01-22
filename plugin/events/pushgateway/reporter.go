@@ -53,6 +53,7 @@ type PushgatewayReporter struct {
 	cancel   context.CancelFunc
 	events   []event.BaseEvent
 	reqChan  chan event.BaseEvent
+	doneChan chan struct{} // 用于等待协程完成
 
 	httpClient *http.Client
 	targetUrl  string
@@ -72,6 +73,21 @@ func (p *PushgatewayReporter) Name() string {
 }
 
 func (p *PushgatewayReporter) Destroy() error {
+	// 先取消 context 并等待事件 Flush 完成，然后再销毁 PluginBase 和 RunContext
+	if p.cancel != nil {
+		if p.log != nil {
+			p.log.Infof("[EventReporter][Pushgateway] canceling context and waiting for flush")
+		}
+		p.cancel()
+		// 等待协程完成 Flush
+		if p.doneChan != nil {
+			<-p.doneChan
+			if p.log != nil {
+				p.log.Infof("[EventReporter][Pushgateway] flush completed")
+			}
+		}
+	}
+
 	if p.PluginBase != nil {
 		if err := p.PluginBase.Destroy(); err != nil {
 			return err
@@ -81,9 +97,6 @@ func (p *PushgatewayReporter) Destroy() error {
 		if err := p.RunContext.Destroy(); err != nil {
 			return err
 		}
-	}
-	if p.cancel != nil {
-		p.cancel()
 	}
 
 	return nil
@@ -108,6 +121,8 @@ func (p *PushgatewayReporter) Init(ctx *plugin.InitContext) error {
 // ReportEvent 数据记录在缓存中，定期1分钟上报
 func (p *PushgatewayReporter) ReportEvent(e event.BaseEvent) error {
 	p.prepare()
+	p.log.Infof("[EventReporter][Pushgateway] ReportEvent called, event type: %v, event name: %v", e.GetEventType(),
+		e.GetEventName())
 
 	select {
 	case p.reqChan <- e:
@@ -120,20 +135,23 @@ func (p *PushgatewayReporter) ReportEvent(e event.BaseEvent) error {
 
 func (p *PushgatewayReporter) prepare() {
 	p.once.Do(func() {
+		p.log.Infof("[EventReporter][Pushgateway] prepare called, initializing...")
 		// 只有触发了Chain.ReportEvent，才需要初始化chan，启动接受协程（一次任务）
 		p.events = make([]event.BaseEvent, 0, p.cfg.EventQueueSize+1)
 		p.reqChan = make(chan event.BaseEvent, p.cfg.EventQueueSize+1)
+		p.doneChan = make(chan struct{})
 
 		p.httpClient = &http.Client{Timeout: time.Second * 3}
 		if p.cfg.Address != "" {
 			p.targetUrl = fmt.Sprintf("http://%s/%s", p.cfg.Address, p.cfg.ReportPath)
 		}
-
 		ctx, cancel := context.WithCancel(context.Background())
 		p.cancel = cancel
+		p.log.Infof("[EventReporter][Pushgateway] starting event consumer goroutine")
 		go func(ctx context.Context) {
 			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
+			defer close(p.doneChan) // 协程退出时关闭 doneChan，通知 Destroy 方法
 			for {
 				select {
 				case e := <-p.reqChan:
@@ -144,7 +162,19 @@ func (p *PushgatewayReporter) prepare() {
 				case <-ticker.C:
 					p.Flush(false)
 				case <-ctx.Done():
-					p.log.Infof("[EventReporter][Pushgateway] receive destroy signal, flush events")
+					p.log.Infof("[EventReporter][Pushgateway] context done, draining channel...")
+					// 先把 channel 中剩余的事件消费完
+					for {
+						select {
+						case e := <-p.reqChan:
+							p.log.Infof("[EventReporter][Pushgateway] drained event from channel")
+							p.events = append(p.events, e)
+						default:
+							goto flushAndExit
+						}
+					}
+				flushAndExit:
+					p.log.Infof("[EventReporter][Pushgateway] flushing %d events before exit", len(p.events))
 					p.Flush(true) // 退出之前同步flush数据
 					p.log.Infof("[EventReporter][Pushgateway] pushgateway reporter is stopping")
 					return
