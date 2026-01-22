@@ -121,7 +121,7 @@ func (p *PushgatewayReporter) Init(ctx *plugin.InitContext) error {
 // ReportEvent 数据记录在缓存中，定期1分钟上报
 func (p *PushgatewayReporter) ReportEvent(e event.BaseEvent) error {
 	p.prepare()
-	p.log.Infof("[EventReporter][Pushgateway] ReportEvent called, event type: %v, event name: %v", e.GetEventType(),
+	p.log.Debugf("[EventReporter][Pushgateway] ReportEvent called, event type: %v, event name: %v", e.GetEventType(),
 		e.GetEventName())
 
 	select {
@@ -229,33 +229,57 @@ func (p *PushgatewayReporter) Flush(isSync bool) {
 			return
 		}
 
-		dataBuffer := bytes2.NewBuffer(data)
 		targetUrl, err := p.getTargetUrl()
 		if err != nil {
 			p.log.Warnf("[EventReporter][Pushgateway] not found target event server addr, ignore it. %s", err.Error())
 			return
 		}
-		req, err := http.NewRequest(http.MethodPost, targetUrl, dataBuffer)
-		if err != nil {
-			p.log.Errorf("[EventReporter][Pushgateway] new request err: %+v", err)
-			return
-		}
 
-		var respBuffer bytes2.Buffer
-		var respCode int
-		resp, respErr := p.httpClient.Do(req)
-		if resp != nil {
-			respCode = resp.StatusCode
-			if resp.Body != nil {
-				_, _ = io.Copy(&respBuffer, resp.Body)
-				defer resp.Body.Close()
+		// 重试配置：最多重试 3 次，每次间隔递增
+		maxRetries := 3
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			dataBuffer := bytes2.NewBuffer(data)
+			req, err := http.NewRequest(http.MethodPost, targetUrl, dataBuffer)
+			if err != nil {
+				p.log.Errorf("[EventReporter][Pushgateway] new request err: %+v", err)
+				return
+			}
+
+			var respBuffer bytes2.Buffer
+			var respCode int
+			resp, respErr := p.httpClient.Do(req)
+			if resp != nil {
+				respCode = resp.StatusCode
+				if resp.Body != nil {
+					_, _ = io.Copy(&respBuffer, resp.Body)
+					resp.Body.Close()
+				}
+			}
+
+			// 请求成功，直接返回
+			if respErr == nil && respCode >= 200 && respCode < 300 {
+				p.log.Debugf("[EventReporter][Pushgateway] request success, code: %d", respCode)
+				return
+			}
+
+			// 请求失败，记录日志
+			if respErr != nil {
+				p.log.Warnf("[EventReporter][Pushgateway] do request err (attempt %d/%d): %+v, code: %d, resp: %s",
+					attempt, maxRetries, respErr, respCode, respBuffer.String())
+			} else {
+				p.log.Warnf("[EventReporter][Pushgateway] request failed (attempt %d/%d), code: %d, resp: %s",
+					attempt, maxRetries, respCode, respBuffer.String())
+			}
+
+			// 如果不是最后一次重试，等待一段时间后重试
+			if attempt < maxRetries {
+				retryDelay := time.Duration(attempt) * time.Second
+				p.log.Infof("[EventReporter][Pushgateway] retrying after %v...", retryDelay)
+				time.Sleep(retryDelay)
 			}
 		}
-		if respErr != nil {
-			p.log.Errorf("[EventReporter][Pushgateway] do request err: %+v, code: %d, resp: %s", respErr, respCode,
-				respBuffer.String())
-			return
-		}
+
+		p.log.Errorf("[EventReporter][Pushgateway] all %d retry attempts failed", maxRetries)
 	}
 
 	if isSync {

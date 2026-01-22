@@ -3,7 +3,7 @@ global:
     addresses:
       - ${POLARIS_SERVER}:8091
     token: ${POLARIS_TOKEN}
-    connectTimeout: 3000ms
+    connectTimeout: 5000ms
   eventReporter:
     enable: true
     chain:
@@ -26,10 +26,13 @@ provider:
     strategy: DELAY_BY_TIME
     # 时长延迟注册的等待时间
     delayRegisterInterval: 10s
-    # 探测延迟注册的探测周期
-    healthCheckInterval: 5s
     plugin:
       losslessController:
-        healthCheckProtocol: "HTTP"
-        healthCheckMethod: "GET"
-        healthCheckPath: "/health"
+        # 无损下线preStop插件的接口开关
+        offlineProbeEnabled: true
+        # 无损下线preStop插件的请求路径
+        offlinePath: "/offline"
+        # 无损上线就绪检查的接口开关
+        readinessProbeEnabled: true
+        # 无损上线就绪检查的请求路径
+        readinessPath: "/readiness"

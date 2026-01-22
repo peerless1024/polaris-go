@@ -77,6 +77,8 @@ func (s *Server) Name() string {
 // Init 插件初始化
 func (s *Server) Init(ctx *plugin.InitContext) error {
 	s.PluginBase = plugin.NewPluginBase(ctx)
+	s.host = ctx.Config.GetGlobal().GetAdmin().GetHost()
+	s.port = ctx.Config.GetGlobal().GetAdmin().GetPort()
 	s.registeredPaths = make(map[string]bool)
 	s.mux = http.NewServeMux()
 	return nil

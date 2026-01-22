@@ -20,8 +20,6 @@ provider:
     # 范围:时长延迟(DELAY_BY_TIME), 探测延迟(DELAY_BY_HEALTH_CHECK)
     # 默认值:DELAY_BY_TIME
     strategy: DELAY_BY_HEALTH_CHECK
-    # 时长延迟注册的等待时间, 兜底延迟多久会进行上线
-    delayRegisterInterval: 10s
     # 探测延迟注册的探测周期, 默认5s
     healthCheckInterval: 5s
     plugin:

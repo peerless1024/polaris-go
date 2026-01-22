@@ -36,8 +36,8 @@ var SupportedDelayRegisterStrategies = map[string]struct{}{
 type LosslessInfo struct {
 	Instance            *InstanceRegisterRequest `json:"instance,omitempty"`
 	DelayRegisterConfig *DelayRegisterConfig     `json:"delayRegisterConfig,omitempty"`
-	ReadinessProbe      *AdminHandler            `json:"readinessProbe,omitempty"`
-	OfflineProbe        *AdminHandler            `json:"offlineProbe,omitempty"`
+	ReadinessProbe      string                   `json:"readinessProbe,omitempty"`
+	OfflineProbe        string                   `json:"offlineProbe,omitempty"`
 	WarmUpConfig        *WarmUpConfig            `json:"warmUpConfig,omitempty"`
 }
 
@@ -46,11 +46,11 @@ func (l *LosslessInfo) IsDelayRegisterEnabled() bool {
 }
 
 func (l *LosslessInfo) IsReadinessProbeEnabled() bool {
-	return l != nil && l.ReadinessProbe != nil && l.ReadinessProbe.Path != ""
+	return l != nil && l.ReadinessProbe != ""
 }
 
 func (l *LosslessInfo) IsOfflineProbeEnabled() bool {
-	return l != nil && l.OfflineProbe != nil && l.OfflineProbe.Path != ""
+	return l != nil && l.OfflineProbe != ""
 }
 
 func (l *LosslessInfo) IsWarmUpEnabled() bool {

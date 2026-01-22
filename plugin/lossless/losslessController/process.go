@@ -57,13 +57,17 @@ func (p *LosslessController) genAndRunGraceProbe() {
 	if effectiveRule.IsReadinessProbeEnabled() || effectiveRule.IsOfflineProbeEnabled() {
 		if effectiveRule.IsReadinessProbeEnabled() {
 			p.log.Infof("[LosslessController] Process, readiness probe enabled")
-			effectiveRule.ReadinessProbe.HandlerFunc = p.genReadinessProbe()
-			e.GetAdmin().RegisterHandler(effectiveRule.ReadinessProbe)
+			e.GetAdmin().RegisterHandler(&model.AdminHandler{
+				Path:        effectiveRule.ReadinessProbe,
+				HandlerFunc: p.genReadinessProbe(),
+			})
 		}
 		if effectiveRule.IsOfflineProbeEnabled() {
 			p.log.Infof("[LosslessController] Process, offline probe enabled")
-			effectiveRule.OfflineProbe.HandlerFunc = p.genPreStopProbe()
-			e.GetAdmin().RegisterHandler(effectiveRule.OfflineProbe)
+			e.GetAdmin().RegisterHandler(&model.AdminHandler{
+				Path:        effectiveRule.OfflineProbe,
+				HandlerFunc: p.genPreStopProbe(),
+			})
 		}
 		// 启动无损上下线接口
 		go e.GetAdmin().Run()
@@ -161,9 +165,17 @@ func (p *LosslessController) genReadinessProbe() func(w http.
 		if p.engine.GetRegisterState().IsRegistered(p.losslessInfo.Instance) {
 			p.log.Infof("[Lossless Event] losslessReadinessCheck is registered")
 			w.WriteHeader(http.StatusOK)
+			_, err := w.Write([]byte("REGISTERED"))
+			if err != nil {
+				p.log.Errorf("[Lossless Event] losslessReadinessCheck write error: %v", err)
+			}
 		} else {
 			p.log.Infof("[Lossless Event] losslessReadinessCheck is not registered")
 			w.WriteHeader(http.StatusServiceUnavailable)
+			_, err := w.Write([]byte("UNREGISTERED"))
+			if err != nil {
+				p.log.Errorf("[Lossless Event] losslessReadinessCheck write error: %v", err)
+			}
 		}
 	}
 	return HandlerFunc
@@ -178,9 +190,17 @@ func (p *LosslessController) genPreStopProbe() func(w http.
 			p.log.Infof("[Lossless Event] losslessOfflineProcess SyncDeregister success")
 			p.reportEvent(event.GetLosslessEvent(event.InstanceThreadEnd, p.losslessInfo))
 			w.WriteHeader(http.StatusOK)
+			_, err := w.Write([]byte("DEREGISTERED SUCCESS"))
+			if err != nil {
+				p.log.Errorf("[Lossless Event] losslessReadinessCheck write error: %v", err)
+			}
 		} else {
 			p.log.Errorf("[Lossless Event] losslessOfflineProcess SyncDeregister error: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
+			_, err := w.Write([]byte("REGISTERED FAILED"))
+			if err != nil {
+				p.log.Errorf("[Lossless Event] losslessReadinessCheck write error: %v", err)
+			}
 		}
 	}
 	return HandlerFunc

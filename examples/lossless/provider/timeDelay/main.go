@@ -44,7 +44,7 @@ func initArgs() {
 	flag.StringVar(&service, "service", "LosslessTimeDelayServer", "service")
 	// 当北极星开启鉴权时，需要配置此参数完成相关的权限检查
 	flag.StringVar(&token, "token", "", "token")
-	flag.Int64Var(&port, "port", 0, "port")
+	flag.Int64Var(&port, "port", 19090, "port")
 }
 
 // PolarisProvider is an example of provider
@@ -141,6 +141,7 @@ func (svr *PolarisProvider) runMainLoop() {
 		log.Printf("catch signal(%+v), stop servers", s)
 		svr.isShutdown = true
 		svr.deregisterService()
+		svr.provider.Destroy()
 		_ = svr.webSvr.Close()
 		return
 	}

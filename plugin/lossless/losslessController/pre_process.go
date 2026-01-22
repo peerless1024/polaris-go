@@ -113,12 +113,10 @@ func (p *LosslessController) parseRemoteReadinessConfig(lossLessRule *traffic_ma
 	}
 	if !lossLessRule.GetLosslessOnline().GetReadiness().GetEnable() {
 		// 远程配置不开启健康检查,则关闭健康检查
-		p.losslessInfo.ReadinessProbe = nil
+		p.losslessInfo.ReadinessProbe = ""
 		return
 	}
-	p.losslessInfo.ReadinessProbe = &model.AdminHandler{
-		Path: p.pluginCfg.ReadinessPath,
-	}
+	p.losslessInfo.ReadinessProbe = p.pluginCfg.ReadinessPath
 }
 
 func (p *LosslessController) parseRemoteOfflineConfig(lossLessRule *traffic_manage.LosslessRule) {
@@ -130,12 +128,10 @@ func (p *LosslessController) parseRemoteOfflineConfig(lossLessRule *traffic_mana
 	}
 	if !lossLessRule.GetLosslessOffline().GetEnable() {
 		// 远程配置不开启无损下线,则关闭无损下线
-		p.losslessInfo.OfflineProbe = nil
+		p.losslessInfo.OfflineProbe = ""
 		return
 	}
-	p.losslessInfo.OfflineProbe = &model.AdminHandler{
-		Path: p.pluginCfg.OfflinePath,
-	}
+	p.losslessInfo.OfflineProbe = p.pluginCfg.OfflinePath
 }
 
 func (p *LosslessController) parseRemoteWarmupConfig(lossLessRule *traffic_manage.LosslessRule) {
@@ -199,16 +195,13 @@ func (p *LosslessController) parseLocalDelayRegisterConfig() {
 
 func (p *LosslessController) parseLocalReadinessConfig() {
 	if p.pluginCfg.ReadinessProbeEnabled {
-		p.losslessInfo.ReadinessProbe = &model.AdminHandler{
-			Path: p.pluginCfg.ReadinessPath,
-		}
+		p.losslessInfo.ReadinessProbe = p.pluginCfg.ReadinessPath
+
 	}
 }
 
 func (p *LosslessController) parseLocalOfflineConfig() {
 	if p.pluginCfg.OfflineProbeEnabled {
-		p.losslessInfo.OfflineProbe = &model.AdminHandler{
-			Path: p.pluginCfg.OfflinePath,
-		}
+		p.losslessInfo.OfflineProbe = p.pluginCfg.OfflinePath
 	}
 }

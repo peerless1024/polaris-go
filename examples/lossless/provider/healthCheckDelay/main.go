@@ -44,7 +44,7 @@ func initArgs() {
 	flag.StringVar(&service, "service", "LosslessHealthDelayServer", "service")
 	// 当北极星开启鉴权时，需要配置此参数完成相关的权限检查
 	flag.StringVar(&token, "token", "", "token")
-	flag.Int64Var(&port, "port", 0, "port")
+	flag.Int64Var(&port, "port", 19080, "port")
 }
 
 // PolarisProvider is an example of provider
@@ -71,6 +71,14 @@ func (svr *PolarisProvider) Run() {
 }
 
 func (svr *PolarisProvider) runWebServer() {
+	http.HandleFunc("/health", func(rw http.ResponseWriter, r *http.Request) {
+		// TODO: 后续可以改成根据不同条件，返回不同的状态码
+		rw.WriteHeader(http.StatusOK)
+		msg := fmt.Sprintf("Hello, I'm DiscoverEchoServer Provider, My host : %s:%d", svr.host, svr.port)
+		log.Printf("get health request from client address: %s, response:%s", r.RemoteAddr, msg)
+		_, _ = rw.Write([]byte(msg))
+	})
+
 	http.HandleFunc("/echo", func(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 		msg := fmt.Sprintf("Hello, I'm DiscoverEchoServer Provider, My host : %s:%d", svr.host, svr.port)
@@ -89,8 +97,12 @@ func (svr *PolarisProvider) runWebServer() {
 		log.Printf("[INFO] start http server, listen port is %v", svr.port)
 		svr.webSvr = &http.Server{Handler: nil}
 		if err := svr.webSvr.Serve(ln); err != nil {
-			svr.isShutdown = false
-			log.Fatalf("[ERROR]fail to run webServer, err is %v", err)
+			if !svr.isShutdown {
+				log.Fatalf("[ERROR]fail to run webServer, err is %v", err)
+			} else {
+				// 正常关闭时，只打印日志，不要 Fatalf
+				log.Printf("[ERROR]fail to run webServer, err is %v", err)
+			}
 		}
 	}()
 }
