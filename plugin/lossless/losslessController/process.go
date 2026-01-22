@@ -190,14 +190,14 @@ func (p *LosslessController) genPreStopProbe() func(w http.
 			p.log.Infof("[Lossless Event] losslessOfflineProcess SyncDeregister success")
 			p.reportEvent(event.GetLosslessEvent(event.InstanceThreadEnd, p.losslessInfo))
 			w.WriteHeader(http.StatusOK)
-			_, err := w.Write([]byte("DEREGISTERED SUCCESS"))
+			_, err = w.Write([]byte("DEREGISTERED SUCCESS"))
 			if err != nil {
 				p.log.Errorf("[Lossless Event] losslessReadinessCheck write error: %v", err)
 			}
 		} else {
 			p.log.Errorf("[Lossless Event] losslessOfflineProcess SyncDeregister error: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			_, err := w.Write([]byte("REGISTERED FAILED"))
+			_, err := w.Write([]byte("DEREGISTERED FAILED"))
 			if err != nil {
 				p.log.Errorf("[Lossless Event] losslessReadinessCheck write error: %v", err)
 			}
