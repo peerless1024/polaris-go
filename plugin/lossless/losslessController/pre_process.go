@@ -24,6 +24,7 @@ import (
 	"github.com/polarismesh/specification/source/go/api/v1/traffic_manage"
 
 	"github.com/polarismesh/polaris-go/pkg/model"
+	"github.com/polarismesh/polaris-go/pkg/model/pb"
 )
 
 func (p *LosslessController) PreProcess(instance *model.InstanceRegisterRequest,
@@ -40,14 +41,24 @@ func (p *LosslessController) PreProcess(instance *model.InstanceRegisterRequest,
 		p.parseLocalConfig()
 		return
 	}
-	lossLessRule, ok := rule.Value.(*traffic_manage.LosslessRule)
+	p.log.Infof("[LosslessController] LosslessRule value is not nil, parse remote config, rule: %s", model.JsonString(
+		rule.Value))
+	lossLessRuleWrapper, ok := rule.Value.(*pb.LosslessRuleWrapper)
 	if !ok {
-		p.log.Infof("[LosslessController] rule is not LosslessRule, fallback to parse local "+
+		p.log.Infof("[LosslessController] rule is not LosslessRuleWrapper, fallback to parse local "+
 			"config, p.losslessInfo: %v", p.losslessInfo)
 		// 解析远程规则失败,使用本地配置
 		p.parseLocalConfig()
 		return
 	}
+	if len(lossLessRuleWrapper.Rules) == 0 {
+		p.log.Infof("[LosslessController] LosslessRuleWrapper.Rules is empty, fallback to parse local "+
+			"config, p.losslessInfo: %v", p.losslessInfo)
+		p.parseLocalConfig()
+		return
+	}
+	// 取第一个规则进行解析
+	lossLessRule := lossLessRuleWrapper.Rules[0]
 	p.parseRemoteConfig(lossLessRule)
 }
 
@@ -76,7 +87,7 @@ func (p *LosslessController) parseRemoteDelayRegisterConfig(lossLessRule *traffi
 	switch remoteStrategy {
 	case model.LosslessDelayRegisterStrategyDelayByTime:
 		p.losslessInfo.DelayRegisterConfig = &model.DelayRegisterConfig{
-			Strategy: remoteStrategy,
+			Strategy: model.LosslessDelayRegisterStrategyDelayByTime,
 			DelayRegisterInterval: time.Duration(lossLessRule.GetLosslessOnline().GetDelayRegister().
 				GetIntervalSecond()) * time.Second,
 		}
@@ -84,6 +95,9 @@ func (p *LosslessController) parseRemoteDelayRegisterConfig(lossLessRule *traffi
 		healthCheckIntervalSec, err := strconv.ParseInt(lossLessRule.GetLosslessOnline().GetDelayRegister().
 			GetHealthCheckIntervalSecond(), 10, 64)
 		if err == nil {
+			p.losslessInfo.DelayRegisterConfig = &model.DelayRegisterConfig{
+				Strategy: model.LosslessDelayRegisterStrategyDelayByHealthCheck,
+			}
 			p.losslessInfo.DelayRegisterConfig.HealthCheckConfig = &model.LosslessHealthCheckConfig{
 				HealthCheckInterval: time.Duration(healthCheckIntervalSec) * time.Second,
 				HealthCheckPath:     p.pluginCfg.HealthCheckPath,

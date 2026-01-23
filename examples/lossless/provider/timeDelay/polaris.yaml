@@ -29,8 +29,6 @@ provider:
         # 无损下线preStop插件的接口开关
         offlineProbeEnabled: true
         # 无损下线preStop插件的请求路径
-        offlinePath: "/offline"
         # 无损上线就绪检查的接口开关
         readinessProbeEnabled: true
         # 无损上线就绪检查的请求路径
-        readinessPath: "/readiness"
