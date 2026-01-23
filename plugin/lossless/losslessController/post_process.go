@@ -24,13 +24,17 @@ import (
 )
 
 func (p *LosslessController) PostProcess() {
-	if p.losslessInfo.IsWarmUpEnabled() {
-		p.log.Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is true, warmUp interval: %v, "+
-			"start warm up", p.losslessInfo.WarmUpConfig.Interval)
-		p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupStart, p.losslessInfo))
-		time.Sleep(p.losslessInfo.WarmUpConfig.Interval)
-		p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupEnd, p.losslessInfo))
-	} else {
-		p.log.Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is false, skip warm up")
-	}
+	p.log.Infof("[LosslessController] SyncLosslessRegister PostProcess start")
+	go func() {
+		if p.losslessInfo.IsWarmUpEnabled() {
+			p.log.Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is true, warmUp interval: %v, "+
+				"start warm up", p.losslessInfo.WarmUpConfig.Interval)
+			p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupStart, p.losslessInfo))
+			time.Sleep(p.losslessInfo.WarmUpConfig.Interval)
+			p.log.Infof("[LosslessController] SyncLosslessRegister WarmUp end")
+			p.reportEvent(event.GetLosslessEvent(event.LosslessWarmupEnd, p.losslessInfo))
+		} else {
+			p.log.Infof("[LosslessController] SyncLosslessRegister WarmUpEnabled is false, skip warm up")
+		}
+	}()
 }

@@ -18,17 +18,18 @@ provider:
   lossless:
     # 是否启用无损上下线
     enable: true
-    # 无损上下线插件类型
-    type: losslessController
-    # 无损上线延迟注册策略
-    strategy: DELAY_BY_TIME
-    # 时长延迟注册的等待时间
-    delayRegisterInterval: 10s
-    plugin:
-      losslessController:
-        # 无损下线preStop插件的接口开关
-        offlineProbeEnabled: true
-        # 无损下线preStop插件的请求路径
-        # 无损上线就绪检查的接口开关
-        readinessProbeEnabled: true
-        # 无损上线就绪检查的请求路径
+    # 使用本地配置时取消下列注释
+#    # 无损上下线插件类型
+#    type: losslessController
+#    # 无损上线延迟注册策略
+#    strategy: DELAY_BY_TIME
+#    # 时长延迟注册的等待时间
+#    delayRegisterInterval: 10s
+#    plugin:
+#      losslessController:
+#        # 无损下线preStop插件的接口开关
+#        offlineProbeEnabled: true
+#        # 无损下线preStop插件的请求路径
+#        # 无损上线就绪检查的接口开关
+#        readinessProbeEnabled: true
+#        # 无损上线就绪检查的请求路径

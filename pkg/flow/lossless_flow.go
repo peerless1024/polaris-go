@@ -48,6 +48,6 @@ func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (
 		return resp, err
 	}
 	// 服务预热事件上报
-	go e.lossless.PostProcess()
+	e.lossless.PostProcess()
 	return resp, nil
 }

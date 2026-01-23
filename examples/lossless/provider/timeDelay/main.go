@@ -141,7 +141,6 @@ func (svr *PolarisProvider) runMainLoop() {
 		log.Printf("catch signal(%+v), stop servers", s)
 		svr.isShutdown = true
 		svr.deregisterService()
-		svr.provider.Destroy()
 		_ = svr.webSvr.Close()
 		return
 	}
