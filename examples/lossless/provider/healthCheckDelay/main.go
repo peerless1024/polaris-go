@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/polarismesh/polaris-go"
@@ -49,13 +50,14 @@ func initArgs() {
 
 // PolarisProvider is an example of provider
 type PolarisProvider struct {
-	provider   polaris.ProviderAPI
-	namespace  string
-	service    string
-	host       string
-	port       int
-	isShutdown bool
-	webSvr     *http.Server
+	provider         polaris.ProviderAPI
+	namespace        string
+	service          string
+	host             string
+	port             int
+	isShutdown       bool
+	webSvr           *http.Server
+	healthCheckCount int32 // 健康检查计数器（使用int32以支持原子操作）
 }
 
 // Run starts the provider
@@ -72,7 +74,16 @@ func (svr *PolarisProvider) Run() {
 
 func (svr *PolarisProvider) runWebServer() {
 	http.HandleFunc("/health", func(rw http.ResponseWriter, r *http.Request) {
-		// TODO: 后续可以改成根据不同条件，返回不同的状态码
+		count := atomic.AddInt32(&svr.healthCheckCount, 1)
+		if count == 1 {
+			// 第一次健康检查返回失败
+			rw.WriteHeader(http.StatusServiceUnavailable)
+			msg := fmt.Sprintf("Health check failed (first attempt), host: %s:%d", svr.host, svr.port)
+			log.Printf("get health request from client address: %s, response: %s (503)", r.RemoteAddr, msg)
+			_, _ = rw.Write([]byte(msg))
+			return
+		}
+		// 后续健康检查返回成功
 		rw.WriteHeader(http.StatusOK)
 		msg := fmt.Sprintf("Hello, I'm DiscoverEchoServer Provider, My host : %s:%d", svr.host, svr.port)
 		log.Printf("get health request from client address: %s, response:%s", r.RemoteAddr, msg)

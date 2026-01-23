@@ -4,16 +4,14 @@ global:
       - ${POLARIS_SERVER}:8091
     token: ${POLARIS_TOKEN}
     connectTimeout: 5000ms
+  api:
+    timeout: 5s
+    maxRetryTimes: 2
+    retryInterval: 1s
   eventReporter:
     enable: true
     chain:
       - pushgateway
-  # 描述：Admin相关的配置
-  admin:
-    # 描述：Admin的监听的IP
-    host: 0.0.0.0
-    # 描述：Admin监听的端口
-    port: 28080
 # 被调方配置
 provider:
   # 无损上下线配置
