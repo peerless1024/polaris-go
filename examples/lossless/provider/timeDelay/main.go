@@ -91,10 +91,10 @@ func (svr *PolarisProvider) runWebServer() {
 		val := r.URL.Query().Get("openError")
 		if val == "true" {
 			atomic.StoreInt32(&svr.needErr, 1)
-			msg = fmt.Sprintf("echo request status code set to 500")
+			msg = "echo request status code set to 500"
 		} else {
 			atomic.StoreInt32(&svr.needErr, 0)
-			msg = fmt.Sprintf("echo request status code set to 200")
+			msg = "echo request status code set to 200"
 		}
 		log.Printf("get switch request from client address: %s, response:%s", r.RemoteAddr, msg)
 		rw.WriteHeader(http.StatusOK)

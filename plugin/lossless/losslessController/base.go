@@ -69,18 +69,19 @@ func (p *LosslessController) Init(ctx *plugin.InitContext) error {
 }
 
 func (p *LosslessController) reportEvent(eventInfo event.BaseEventImpl) {
-	if p.engine == nil || p.engine.GetEventReportChain() == nil {
-		p.log.Errorf("[LosslessController] GetEventReportChain is nil")
+	eventReporters, err := p.pluginCtx.Plugins.GetPlugins(common.TypeEventReporter)
+	if err != nil {
+		p.log.Errorf("[LosslessController] GetPlugins(%s) err: %+v", common.TypeEventReporter, err)
 		return
 	}
-	eventChain, ok := p.engine.GetEventReportChain().([]events.EventReporter)
-	if !ok {
-		p.log.Errorf("[LosslessController] GetEventReportChain type assertion failed")
-		return
-	}
-	for _, chain := range eventChain {
-		if err := chain.ReportEvent(&eventInfo); err != nil {
-			p.log.Errorf("[LosslessController] report event(%s) err: %+v", eventInfo, err)
+	for _, eventReporterPlugin := range eventReporters {
+		eventReporter, ok := eventReporterPlugin.(events.EventReporter)
+		if !ok {
+			p.log.Errorf("[LosslessController] GetEventReportChain type assertion failed")
+			return
+		}
+		if err = eventReporter.ReportEvent(&eventInfo); err != nil {
+			p.log.Errorf("[LosslessController] report event(%s) err: %+v", model.JsonString(eventInfo), err)
 			continue
 		}
 	}

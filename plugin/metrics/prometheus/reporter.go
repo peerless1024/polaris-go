@@ -38,6 +38,7 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/plugin/admin"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 	statreporter "github.com/polarismesh/polaris-go/pkg/plugin/metrics"
+	"github.com/polarismesh/polaris-go/plugin/admin/httpServer"
 	statcommon "github.com/polarismesh/polaris-go/plugin/metrics/common"
 )
 
@@ -334,8 +335,7 @@ func (pa *PullAction) doAggregation(ctx context.Context) {
 
 // registerToAdmin 将 metrics handler 注册到 admin 服务
 func (pa *PullAction) serveOnAdmin() {
-	adminType := pa.initCtx.Config.GetGlobal().GetAdmin().GetType()
-	targetPlugin, err := pa.initCtx.Plugins.GetPlugin(common.TypeAdmin, adminType)
+	targetPlugin, err := pa.initCtx.Plugins.GetPlugin(common.TypeAdmin, httpServer.PluginName)
 	if err != nil {
 		log.GetBaseLogger().Errorf("[metrics][pull] get admin plugin fail: %v", err)
 		return

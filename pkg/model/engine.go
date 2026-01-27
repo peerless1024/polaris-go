@@ -156,6 +156,5 @@ type Engine interface {
 	MakeFunctionDecorator(CustomerFunction, *RequestContext) DecoratorFunction
 	// MakeInvokeHandler
 	MakeInvokeHandler(*RequestContext) InvokeHandler
-	GetEventReportChain() interface{}
 	GetRegisterState() RegisterState
 }

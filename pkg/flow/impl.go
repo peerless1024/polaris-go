@@ -35,7 +35,6 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/model/pb"
 	"github.com/polarismesh/polaris-go/pkg/plugin"
-	"github.com/polarismesh/polaris-go/pkg/plugin/admin"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 	"github.com/polarismesh/polaris-go/pkg/plugin/configconnector"
 	"github.com/polarismesh/polaris-go/pkg/plugin/configfilter"
@@ -67,8 +66,6 @@ type Engine struct {
 	reporterChain []statreporter.StatReporter
 	// 事件插件链
 	eventChain []events.EventReporter
-	// admin
-	admin admin.Admin
 	// 无损上下线插件
 	lossless lossless.Lossless
 	// 负载均衡器
@@ -137,12 +134,7 @@ func InitFlowEngine(flowEngine *Engine, initContext plugin.InitContext) error {
 			return err
 		}
 	}
-
 	flowEngine.eventChain, err = data.GetEventReporterChain(cfg, plugins)
-	if err != nil {
-		return err
-	}
-	flowEngine.admin, err = data.GetAdmin(cfg, plugins)
 	if err != nil {
 		return err
 	}
@@ -270,10 +262,6 @@ func (e *Engine) GetContext() model.ValueContext {
 
 func (e *Engine) CircuitBreakerFlow() *CircuitBreakerFlow {
 	return e.circuitBreakerFlow
-}
-
-func (e *Engine) GetEventReportChain() interface{} {
-	return e.eventChain
 }
 
 func (e *Engine) GetRegisterState() model.RegisterState {
