@@ -58,6 +58,7 @@ type PolarisProvider struct {
 	isShutdown       bool
 	webSvr           *http.Server
 	healthCheckCount int32 // 健康检查计数器（使用int32以支持原子操作）
+	needErr          int32 // 是否需要返回错误状态码（使用int32以支持原子操作）
 }
 
 // Run starts the provider
@@ -91,9 +92,30 @@ func (svr *PolarisProvider) runWebServer() {
 	})
 
 	http.HandleFunc("/echo", func(rw http.ResponseWriter, r *http.Request) {
-		rw.WriteHeader(http.StatusOK)
-		msg := fmt.Sprintf("Hello, I'm DiscoverEchoServer Provider, My host : %s:%d", svr.host, svr.port)
+		var msg string
+		if atomic.LoadInt32(&svr.needErr) == 1 {
+			msg = fmt.Sprintf("status code: 500, Fatal, My host : %s:%d", svr.host, svr.port)
+			rw.WriteHeader(http.StatusInternalServerError)
+		} else {
+			msg = fmt.Sprintf("status code: 200, Hello, My host : %s:%d", svr.host, svr.port)
+			rw.WriteHeader(http.StatusOK)
+		}
 		log.Printf("get echo request from client address: %s, response:%s", r.RemoteAddr, msg)
+		_, _ = rw.Write([]byte(msg))
+	})
+
+	http.HandleFunc("/switch", func(rw http.ResponseWriter, r *http.Request) {
+		var msg string
+		val := r.URL.Query().Get("openError")
+		if val == "true" {
+			atomic.StoreInt32(&svr.needErr, 1)
+			msg = fmt.Sprintf("echo request status code set to 500")
+		} else {
+			atomic.StoreInt32(&svr.needErr, 0)
+			msg = fmt.Sprintf("echo request status code set to 200")
+		}
+		log.Printf("get switch request from client address: %s, response:%s", r.RemoteAddr, msg)
+		rw.WriteHeader(http.StatusOK)
 		_, _ = rw.Write([]byte(msg))
 	})
 

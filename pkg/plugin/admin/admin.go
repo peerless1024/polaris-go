@@ -18,7 +18,6 @@
 package admin
 
 import (
-	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/plugin"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 )
@@ -26,7 +25,6 @@ import (
 // Admin 管理接口
 type Admin interface {
 	plugin.Plugin
-	RegisterHandler(handler *model.AdminHandler)
 	Run()
 }
 

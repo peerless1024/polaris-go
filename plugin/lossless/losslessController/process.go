@@ -23,8 +23,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/model/event"
+	"github.com/polarismesh/polaris-go/pkg/plugin/admin"
+	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 )
 
 func (p *LosslessController) Process() (*model.InstanceRegisterResponse, error) {
@@ -52,26 +55,38 @@ func (p *LosslessController) Process() (*model.InstanceRegisterResponse, error) 
 }
 
 func (p *LosslessController) genAndRunGraceProbe() {
-	e := p.pluginCtx.ValueCtx.GetEngine()
 	effectiveRule := p.losslessInfo
 	if effectiveRule.IsReadinessProbeEnabled() || effectiveRule.IsOfflineProbeEnabled() {
 		if effectiveRule.IsReadinessProbeEnabled() {
 			p.log.Infof("[LosslessController] Process, readiness probe enabled")
-			e.GetAdmin().RegisterHandler(&model.AdminHandler{
+			p.pluginCtx.Config.GetGlobal().GetAdmin().RegisterPath(model.AdminHandler{
 				Path:        effectiveRule.ReadinessProbe,
 				HandlerFunc: p.genReadinessProbe(),
 			})
 		}
 		if effectiveRule.IsOfflineProbeEnabled() {
 			p.log.Infof("[LosslessController] Process, offline probe enabled")
-			e.GetAdmin().RegisterHandler(&model.AdminHandler{
+			p.pluginCtx.Config.GetGlobal().GetAdmin().RegisterPath(model.AdminHandler{
 				Path:        effectiveRule.OfflineProbe,
 				HandlerFunc: p.genPreStopProbe(),
 			})
 		}
 		// 启动无损上下线接口
-		go e.GetAdmin().Run()
+		p.serveOnAdmin()
 	}
+}
+
+// registerToAdmin 将 metrics handler 注册到 admin 服务
+func (p *LosslessController) serveOnAdmin() {
+	adminType := p.pluginCtx.Config.GetGlobal().GetAdmin().GetType()
+	targetPlugin, err := p.pluginCtx.Plugins.GetPlugin(common.TypeAdmin, adminType)
+	if err != nil {
+		log.GetBaseLogger().Errorf("[metrics][pull] get admin plugin fail: %v", err)
+		return
+	}
+	adminPlugin := targetPlugin.(admin.Admin)
+	adminPlugin.Run()
+	p.log.Infof("[LosslessController] serveOnAdmin, admin plugin run success")
 }
 
 func (p *LosslessController) delayRegisterChecker() error {

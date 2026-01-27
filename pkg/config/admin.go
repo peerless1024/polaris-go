@@ -20,7 +20,9 @@ package config
 import (
 	"errors"
 	"net"
+	"sync"
 
+	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 )
 
@@ -37,6 +39,12 @@ type AdminConfigImpl struct {
 	Type string `yaml:"type" json:"type"`
 	// Plugin 插件配置反序列化后的对象
 	Plugin PluginConfigs `yaml:"plugin" json:"plugin"`
+	// Handlers 注册的路径
+	Handlers []model.AdminHandler `yaml:"-" json:"-"`
+	// mu 保护 Handlers 的并发访问
+	mu *sync.RWMutex `yaml:"-" json:"-"`
+	// muOnce 确保 mu 只初始化一次
+	muOnce sync.Once `yaml:"-" json:"-"`
 }
 
 // GetHost 获取Admin监听的IP地址
@@ -73,6 +81,28 @@ func (a *AdminConfigImpl) GetType() string {
 // SetType 设置负载均衡类型
 func (a *AdminConfigImpl) SetType(typ string) {
 	a.Type = typ
+}
+
+func (a *AdminConfigImpl) RegisterPath(adminHandler model.AdminHandler) {
+	a.ensureMutex()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.Handlers = append(a.Handlers, adminHandler)
+}
+
+// ensureMutex 确保互斥锁已初始化（懒加载，并发安全）
+func (a *AdminConfigImpl) ensureMutex() {
+	a.muOnce.Do(func() {
+		a.mu = &sync.RWMutex{}
+	})
+}
+
+// GetPaths 获取已注册的路径（并发安全）
+func (a *AdminConfigImpl) GetPaths() []model.AdminHandler {
+	a.ensureMutex()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.Handlers
 }
 
 // GetPluginConfig 获取插件配置
@@ -126,4 +156,5 @@ func (a *AdminConfigImpl) SetDefault() {
 func (a *AdminConfigImpl) Init() {
 	a.Plugin = PluginConfigs{}
 	a.Plugin.Init(common.TypeAdmin)
+	a.mu = &sync.RWMutex{}
 }

@@ -80,14 +80,6 @@ type RegisterState interface {
 	IsRegistered(instance *InstanceRegisterRequest) bool
 }
 
-// Admin 管理接口，用于避免循环导入
-type Admin interface {
-	// RegisterHandler 注册处理器
-	RegisterHandler(handler *AdminHandler)
-	// Run 启动服务
-	Run()
-}
-
 // EventReporter 事件上报接口，用于避免循环导入
 type EventReporter interface {
 	// ReportEvent 上报事件
@@ -165,6 +157,5 @@ type Engine interface {
 	// MakeInvokeHandler
 	MakeInvokeHandler(*RequestContext) InvokeHandler
 	GetEventReportChain() interface{}
-	GetAdmin() Admin
 	GetRegisterState() RegisterState
 }

@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/polarismesh/polaris-go"
@@ -56,6 +57,7 @@ type PolarisProvider struct {
 	port       int
 	isShutdown bool
 	webSvr     *http.Server
+	needErr    int32
 }
 
 // Run starts the provider
@@ -72,9 +74,30 @@ func (svr *PolarisProvider) Run() {
 
 func (svr *PolarisProvider) runWebServer() {
 	http.HandleFunc("/echo", func(rw http.ResponseWriter, r *http.Request) {
-		rw.WriteHeader(http.StatusOK)
-		msg := fmt.Sprintf("Hello, I'm DiscoverEchoServer Provider, My host : %s:%d", svr.host, svr.port)
+		var msg string
+		if atomic.LoadInt32(&svr.needErr) == 1 {
+			msg = fmt.Sprintf("status code: 500, Fatal, My host : %s:%d", svr.host, svr.port)
+			rw.WriteHeader(http.StatusInternalServerError)
+		} else {
+			msg = fmt.Sprintf("status code: 200, Hello, My host : %s:%d", svr.host, svr.port)
+			rw.WriteHeader(http.StatusOK)
+		}
 		log.Printf("get echo request from client address: %s, response:%s", r.RemoteAddr, msg)
+		_, _ = rw.Write([]byte(msg))
+	})
+
+	http.HandleFunc("/switch", func(rw http.ResponseWriter, r *http.Request) {
+		var msg string
+		val := r.URL.Query().Get("openError")
+		if val == "true" {
+			atomic.StoreInt32(&svr.needErr, 1)
+			msg = fmt.Sprintf("echo request status code set to 500")
+		} else {
+			atomic.StoreInt32(&svr.needErr, 0)
+			msg = fmt.Sprintf("echo request status code set to 200")
+		}
+		log.Printf("get switch request from client address: %s, response:%s", r.RemoteAddr, msg)
+		rw.WriteHeader(http.StatusOK)
 		_, _ = rw.Write([]byte(msg))
 	})
 

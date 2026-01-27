@@ -37,14 +37,13 @@ const (
 // Server httpServer插件，实现Admin接口
 type Server struct {
 	*plugin.PluginBase
-	host            string
-	port            int
-	httpServer      *http.Server
-	mux             *http.ServeMux
-	once            sync.Once
-	sErr            atomic.Value
-	registeredPaths map[string]bool // 记录已注册的路径
-	mu              sync.RWMutex    // 保护 registeredPaths 的并发访问
+	pluginCtx  *plugin.InitContext
+	host       string
+	port       int
+	httpServer *http.Server
+	mux        *http.ServeMux
+	once       sync.Once
+	sErr       atomic.Value
 }
 
 // SetError 原子设置服务器错误
@@ -77,9 +76,9 @@ func (s *Server) Name() string {
 // Init 插件初始化
 func (s *Server) Init(ctx *plugin.InitContext) error {
 	s.PluginBase = plugin.NewPluginBase(ctx)
+	s.pluginCtx = ctx
 	s.host = ctx.Config.GetGlobal().GetAdmin().GetHost()
 	s.port = ctx.Config.GetGlobal().GetAdmin().GetPort()
-	s.registeredPaths = make(map[string]bool)
 	s.mux = http.NewServeMux()
 	return nil
 }
@@ -100,35 +99,24 @@ func (s *Server) Destroy() error {
 }
 
 // RegisterHandler 注册HTTP处理器路径
-func (s *Server) RegisterHandler(adminHandler *model.AdminHandler) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if adminHandler == nil {
-		log.GetBaseLogger().Warnf("[Admin][HttpServer] adminHandler is nil, skip")
-		return
+func (s *Server) registerHandlers(adminHandlers []model.AdminHandler) {
+	for _, adminHandler := range adminHandlers {
+		path := adminHandler.Path
+		handler := adminHandler.HandlerFunc
+		s.mux.HandleFunc(path, handler)
+		log.GetBaseLogger().Infof("[Admin][HttpServer] registered path: %s", path)
 	}
-	path := adminHandler.Path
-	handler := adminHandler.HandlerFunc
-	if s.registeredPaths[path] {
-		log.GetBaseLogger().Warnf("[Admin][HttpServer] path already registered, skip: %s", path)
-		return
-	}
-
-	s.mux.HandleFunc(path, handler)
-	s.registeredPaths[path] = true
-	log.GetBaseLogger().Infof("[Admin][HttpServer] registered path: %s", path)
 }
 
 // Run 启动HTTP服务器
 func (s *Server) Run() {
 	s.once.Do(func() {
-		s.mu.RLock()
-		pathCount := len(s.registeredPaths)
-		s.mu.RUnlock()
-		if pathCount == 0 {
+		paths := s.pluginCtx.Config.GetGlobal().GetAdmin().GetPaths()
+		if len(paths) == 0 {
 			log.GetBaseLogger().Warnf("[Admin][HttpServer] no path registered, skip starting http server")
 			return
 		}
+		s.registerHandlers(paths)
 		addr := fmt.Sprintf("%s:%d", s.host, s.port)
 		s.httpServer = &http.Server{
 			Addr:    addr,

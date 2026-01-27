@@ -166,6 +166,10 @@ type AdminConfig interface {
 	GetType() string
 	// SetType 设置Admin监听类型
 	SetType(string)
+	// RegisterPath 注册路径
+	RegisterPath(adminHandler model.AdminHandler)
+	// GetPaths 获取注册的路径
+	GetPaths() []model.AdminHandler
 }
 
 // SystemConfig 系统配置信息.

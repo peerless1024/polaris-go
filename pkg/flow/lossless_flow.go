@@ -25,6 +25,12 @@ import (
 // SyncLosslessRegister 同步进行服务注册
 func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (*model.InstanceRegisterResponse,
 	error) {
+	// 当lossless为nil时, 说明本地未开启无损上下线功能插件, 直接注册
+	if e.lossless == nil {
+		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister lossless is not enable, register directly")
+		return e.SyncRegister(instance)
+	}
+	// 获取无损上线规则
 	losslessRule, err := e.SyncGetServiceRule(model.EventLossless, &model.GetServiceRuleRequest{
 		Namespace: instance.Namespace,
 		Service:   instance.Service,
@@ -33,12 +39,8 @@ func (e *Engine) SyncLosslessRegister(instance *model.InstanceRegisterRequest) (
 		log.GetBaseLogger().Errorf("[Lossless Event] SyncLosslessRegister SyncGetServiceRule error: %v", err)
 		return nil, err
 	}
-	log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister SyncGetServiceRule success: %v", losslessRule)
-	// 当lossless为nil时, 说明本地未开启无损上下线功能插件, 直接注册
-	if e.lossless == nil {
-		log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister lossless is not enable, register directly")
-		return e.SyncRegister(instance)
-	}
+	log.GetBaseLogger().Infof("[Lossless Event] SyncLosslessRegister SyncGetServiceRule success: %v",
+		model.JsonString(losslessRule))
 	// 规则解析
 	e.lossless.PreProcess(instance, losslessRule)
 	// 无损上线

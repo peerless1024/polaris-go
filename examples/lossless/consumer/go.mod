@@ -1,4 +1,4 @@
-module github.com/polarismesh/polaris-go-quickstart-consumer
+module github.com/polarismesh/polaris-go/examples/lossless/consumer
 
 go 1.24
 

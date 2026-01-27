@@ -276,10 +276,6 @@ func (e *Engine) GetEventReportChain() interface{} {
 	return e.eventChain
 }
 
-func (e *Engine) GetAdmin() model.Admin {
-	return e.admin
-}
-
 func (e *Engine) GetRegisterState() model.RegisterState {
 	return e.registerStates
 }
