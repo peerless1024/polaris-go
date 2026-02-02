@@ -26,7 +26,6 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/plugin"
-	"github.com/polarismesh/polaris-go/pkg/plugin/admin"
 	"github.com/polarismesh/polaris-go/pkg/plugin/circuitbreaker"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
 	"github.com/polarismesh/polaris-go/pkg/plugin/configconnector"
@@ -39,6 +38,7 @@ import (
 	statreporter "github.com/polarismesh/polaris-go/pkg/plugin/metrics"
 	"github.com/polarismesh/polaris-go/pkg/plugin/serverconnector"
 	"github.com/polarismesh/polaris-go/pkg/plugin/servicerouter"
+	"github.com/polarismesh/polaris-go/pkg/plugin/weightadjuster"
 )
 
 // GetServerConnector 加载连接器插件
@@ -180,13 +180,24 @@ func GetEventReporterChain(cfg config.Configuration, supplier plugin.Supplier) (
 	return reporterChain, nil
 }
 
-func GetAdmin(cfg config.Configuration, supplier plugin.Supplier) (admin.Admin, error) {
-	adminType := cfg.GetGlobal().GetAdmin().GetType()
-	targetPlugin, err := supplier.GetPlugin(common.TypeAdmin, adminType)
-	if err != nil {
-		return nil, err
+func GetWeightAdjuster(cfg config.Configuration, supplier plugin.Supplier) ([]weightadjuster.WeightAdjuster, error) {
+	weightAdjustCfg := cfg.GetConsumer().GetWeightAdjust()
+	if weightAdjustCfg == nil || !weightAdjustCfg.IsEnable() {
+		return nil, nil
 	}
-	return targetPlugin.(admin.Admin), nil
+	chain := weightAdjustCfg.GetChain()
+	if len(chain) == 0 {
+		return nil, nil
+	}
+	weightAdjusters := make([]weightadjuster.WeightAdjuster, 0, len(chain))
+	for _, name := range chain {
+		targetPlugin, err := supplier.GetPlugin(common.TypeWeightAdjuster, name)
+		if err != nil {
+			return nil, err
+		}
+		weightAdjusters = append(weightAdjusters, targetPlugin.(weightadjuster.WeightAdjuster))
+	}
+	return weightAdjusters, nil
 }
 
 // GetLossless 获取无损上下线插件

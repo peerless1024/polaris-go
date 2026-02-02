@@ -46,6 +46,7 @@ import (
 	statreporter "github.com/polarismesh/polaris-go/pkg/plugin/metrics"
 	"github.com/polarismesh/polaris-go/pkg/plugin/serverconnector"
 	"github.com/polarismesh/polaris-go/pkg/plugin/servicerouter"
+	"github.com/polarismesh/polaris-go/pkg/plugin/weightadjuster"
 )
 
 // Engine 编排调度引擎，API相关逻辑在这里执行
@@ -92,6 +93,8 @@ type Engine struct {
 	watchEngine *WatchEngine
 	// 配置过滤链
 	configFilterChain configfilter.Chain
+	// weightAdjuster .
+	weightAdjuster []weightadjuster.WeightAdjuster
 }
 
 // InitFlowEngine 初始化flowEngine实例
@@ -139,6 +142,10 @@ func InitFlowEngine(flowEngine *Engine, initContext plugin.InitContext) error {
 		return err
 	}
 	flowEngine.lossless, err = data.GetLossless(cfg, plugins)
+	if err != nil {
+		return err
+	}
+	flowEngine.weightAdjuster, err = data.GetWeightAdjuster(cfg, plugins)
 	if err != nil {
 		return err
 	}

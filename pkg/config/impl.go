@@ -116,6 +116,7 @@ type ConsumerConfigImpl struct {
 	Loadbalancer     *LoadBalancerConfigImpl   `yaml:"loadbalancer" json:"loadbalancer"`
 	CircuitBreaker   *CircuitBreakerConfigImpl `yaml:"circuitBreaker" json:"circuitBreaker"`
 	HealthCheck      *HealthCheckConfigImpl    `yaml:"healthCheck" json:"healthCheck"`
+	WeightAdjust     *WeightAdjustConfigImpl   `yaml:"weightAdjust" json:"weightAdjust"`
 	ServicesSpecific []*ServiceSpecific        `yaml:"servicesSpecific" json:"servicesSpecific"`
 }
 
@@ -142,6 +143,11 @@ func (c *ConsumerConfigImpl) GetCircuitBreaker() CircuitBreakerConfig {
 // GetHealthCheck get health check config.
 func (c *ConsumerConfigImpl) GetHealthCheck() HealthCheckConfig {
 	return c.HealthCheck
+}
+
+// GetWeightAdjust consumer.weightAdjust前缀开头的所有配置.
+func (c *ConsumerConfigImpl) GetWeightAdjust() WeightAdjustConfig {
+	return c.WeightAdjust
 }
 
 // GetServiceSpecific 服务独立配置.

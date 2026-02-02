@@ -106,6 +106,38 @@ func (e *Engine) doSyncGetOneInstance(commonRequest *data.CommonInstancesRequest
 
 func (e *Engine) doLoadBalanceToOneInstance(
 	startTime time.Time, commonRequest *data.CommonInstancesRequest) (*model.OneInstanceResponse, error) {
+	// 动态权重调整
+	dynamicWeightMap := make(map[string]*model.InstanceWeight)
+	for _, adjuster := range e.weightAdjuster {
+		dynamicWeights, err := adjuster.TimingAdjustDynamicWeight(commonRequest.DstInstances)
+		if err != nil {
+			log.GetBaseLogger().Errorf("adjust dynamic weight failed, err is %v", err)
+			return nil, err
+		}
+		// 将动态权重结果存入map
+		for _, weight := range dynamicWeights {
+			dynamicWeightMap[weight.InstanceID] = weight
+		}
+	}
+	// 设置动态权重到Criteria中
+	commonRequest.Criteria.DynamicWeight = dynamicWeightMap
+	// 如果有动态权重，重新计算总权重并重建DstInstances
+	if len(dynamicWeightMap) > 0 {
+		totalWeight := 0
+		for _, weight := range dynamicWeightMap {
+			totalWeight += int(weight.DynamicWeight)
+		}
+		// 用新的总权重重建DstInstances
+		commonRequest.DstInstances = model.NewDefaultServiceInstancesWithRegistryValue(
+			model.ServiceInfo{
+				Service:   commonRequest.DstInstances.GetService(),
+				Namespace: commonRequest.DstInstances.GetNamespace(),
+				Metadata:  commonRequest.DstInstances.GetMetadata(),
+			},
+			commonRequest.DstInstances,
+			commonRequest.DstInstances.GetInstances(),
+		)
+	}
 	balancer, err := e.getLoadBalancer(commonRequest.DstInstances, commonRequest.LbPolicy)
 	if err != nil {
 		return nil, err

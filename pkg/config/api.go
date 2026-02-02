@@ -67,6 +67,8 @@ type ConsumerConfig interface {
 	GetHealthCheck() HealthCheckConfig
 	// GetServiceSpecific 服务独立配置
 	GetServiceSpecific(namespace string, service string) ServiceSpecificConfig
+	// GetWeightAdjust get weight adjust config
+	GetWeightAdjust() WeightAdjustConfig
 }
 
 // ProviderConfig 被调端配置对象.
@@ -539,6 +541,20 @@ type CircuitBreakerConfig interface {
 	GetDefaultMinimumRequest() int
 	// SetDefaultMinimumRequest 设置默认实例级熔断最小请求数阈值
 	SetDefaultMinimumRequest(count int)
+}
+
+// WeightAdjustConfig 权重调整相关配置项.
+type WeightAdjustConfig interface {
+	BaseConfig
+	PluginConfig
+	// IsEnable 是否启用权重调整
+	IsEnable() bool
+	// SetEnable 设置是否启用权重调整
+	SetEnable(bool)
+	// GetChain 权重调整插件链
+	GetChain() []string
+	// SetChain 设置权重调整插件链
+	SetChain([]string)
 }
 
 // Configuration 全量配置对象.

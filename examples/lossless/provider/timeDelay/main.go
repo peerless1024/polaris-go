@@ -208,10 +208,6 @@ func getLocalHost(serverAddr string) (string, error) {
 	return localAddr, nil
 }
 
-func providedInstanceId(namespace, service, host string, port int) string {
-	return fmt.Sprintf("%s#%s#%s#%d", namespace, service, host, port)
-}
-
 func jsonStr(v interface{}) string {
 	str, _ := json.Marshal(v)
 	return string(str)

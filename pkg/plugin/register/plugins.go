@@ -61,5 +61,5 @@ import (
 	_ "github.com/polarismesh/polaris-go/plugin/servicerouter/rulebase"
 	_ "github.com/polarismesh/polaris-go/plugin/servicerouter/setdivision"
 	_ "github.com/polarismesh/polaris-go/plugin/servicerouter/zeroprotect"
-	_ "github.com/polarismesh/polaris-go/plugin/weightadjuster/ratedelay"
+	_ "github.com/polarismesh/polaris-go/plugin/weightadjuster/warmup"
 )

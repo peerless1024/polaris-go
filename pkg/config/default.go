@@ -73,6 +73,8 @@ const (
 	MinCircuitBreakerCheckPeriod = 1 * time.Second
 	// DefaultCircuitBreakerEnabled 熔断器默认开启与否.
 	DefaultCircuitBreakerEnabled bool = true
+	// DefaultWeightAdjustEnabled 权重调整默认开启与否.
+	DefaultWeightAdjustEnabled bool = false
 	// DefaultRecoverAllEnabled 服务路由的全死全活默认开启与否.
 	DefaultRecoverAllEnabled bool = true
 	// DefaultPercentOfMinInstances 路由至少返回节点数百分比.
@@ -204,6 +206,8 @@ const (
 	DefaultLoadBalancerHash string = "hash"
 	// DefaultCircuitBreaker 默认错误率熔断器.
 	DefaultCircuitBreaker string = "composite"
+	// DefaultWeightAdjuster 默认权重调整插件.
+	DefaultWeightAdjuster string = "warmup"
 	// DefaultCircuitBreakerErrRate 默认错误率熔断器.
 	DefaultCircuitBreakerErrRate string = "errorRate"
 	// DefaultCircuitBreakerErrCount 默认持续错误熔断器.
@@ -519,6 +523,8 @@ func (c *ConsumerConfigImpl) Init() {
 	c.Loadbalancer.Init()
 	c.HealthCheck = &HealthCheckConfigImpl{}
 	c.HealthCheck.Init()
+	c.WeightAdjust = &WeightAdjustConfigImpl{}
+	c.WeightAdjust.Init()
 }
 
 // Verify 检验consumerConfig配置.
@@ -543,6 +549,9 @@ func (c *ConsumerConfigImpl) Verify() error {
 	if err = c.HealthCheck.Verify(); err != nil {
 		errs = multierror.Append(errs, err)
 	}
+	if err = c.WeightAdjust.Verify(); err != nil {
+		errs = multierror.Append(errs, err)
+	}
 	return errs
 }
 
@@ -553,6 +562,7 @@ func (c *ConsumerConfigImpl) SetDefault() {
 	c.ServiceRouter.SetDefault()
 	c.CircuitBreaker.SetDefault()
 	c.HealthCheck.SetDefault()
+	c.WeightAdjust.SetDefault()
 }
 
 // Init 初始化整体配置对象.
