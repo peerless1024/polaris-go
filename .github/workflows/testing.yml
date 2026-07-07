@@ -14,16 +14,18 @@
 # specific language governing permissions and limitations under the License.
 
 
-name: Go
+name: Testing
 
 on:
   push:
     branches:
     - main
+    - release/*
     - feature/**
   pull_request:
     branches:
     - main
+    - release/*
     - feature/**
 
 permissions:
@@ -83,5 +85,11 @@ jobs:
             go test -timeout=120m -v -covermode=count -coverprofile=coverage_${line}.txt -coverpkg=github.com/polarismesh/polaris-go/api,github.com/polarismesh/polaris-go/pkg,github.com/polarismesh/polaris-go/plugin
           done
 
-      - name: Coverage
-        run: bash <(curl -s https://codecov.io/bash)
+      - name: Upload coverage reports to Codecov
+        if: matrix.go == '1.21'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./test/coverage_*.txt
+          flags: integration
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
