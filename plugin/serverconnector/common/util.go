@@ -66,6 +66,7 @@ const (
 	OpKeyRateLimitMetricReport      = "RateLimitMetricReport"
 	OpKeyGetConfigFile              = "GetConfigFile"
 	OpKeyWatchConfigFiles           = "WatchConfigFiles"
+	OpKeyWatchClientEvents          = "WatchClientEvents"
 	OpKeyCreateConfigFile           = "CreateConfigFile"
 	OpKeyUpdateConfigFile           = "UpdateConfigFile"
 	OpKeyPublishConfigFile          = "PublishConfigFile"

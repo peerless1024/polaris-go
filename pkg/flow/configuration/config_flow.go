@@ -61,6 +61,9 @@ type ConfigFileFlow struct {
 	startLongPollingTaskOnce sync.Once
 
 	eventReporterChain []events.EventReporter
+
+	// onWatchChanged 配置文件监听列表变化时的回调，由 Engine 注入用于触发即时 ReportClient
+	onWatchChanged func()
 }
 
 // NewConfigFileFlow 创建配置中心服务
@@ -153,6 +156,13 @@ func (c *ConfigFileFlow) GetConfigFile(req *model.GetConfigFileRequest) (model.C
 		c.configFileCache.Store(cacheKey, configFile)
 		c.logCtx.GetBaseLogger().Infof("[ConfigFileFlow] 配置文件已订阅并加入长轮询池. file=%s/%s/%s, version=%d",
 			req.Namespace, req.FileGroup, req.FileName, fileRepo.getVersion())
+		// 通知监听列表变化，异步触发即时 ReportClient 上报，避免阻塞配置获取流程与持锁
+		c.fclock.RLock()
+		onWatchChanged := c.onWatchChanged
+		c.fclock.RUnlock()
+		if onWatchChanged != nil {
+			go onWatchChanged()
+		}
 	}
 	return configFile, nil
 }
@@ -454,6 +464,100 @@ func (c *ConfigFileFlow) assembleWatchConfigFiles() []*configconnector.ConfigFil
 	}
 
 	return watchConfigFiles
+}
+
+// ConfigFileMetadataItem 配置文件元数据项，对应 ReportClient 上报 config_metadata 中
+// config_watch 数组的单个元素，字段采用 snake_case JSON 命名与服务端配置中心三级树一致。
+type ConfigFileMetadataItem struct {
+	Namespace string `json:"namespace"`
+	Group     string `json:"group"`
+	FileName  string `json:"file_name"`
+	Version   uint64 `json:"version"`
+	Md5       string `json:"md5"`
+}
+
+// GetWatchedConfigFileMetadata 返回当前监听的配置文件元数据列表快照，供 ReportClient 上报 config_metadata。
+// 内部持有 fclock 读锁遍历 configFilePool，调用期间配置文件列表不会被并发修改；
+// 返回值始终非 nil（池为空时返回空切片），调用方可直接序列化为 JSON。
+// receiver 为 nil 时（配置中心未启用，指针被装入接口）返回空切片，避免解引用 panic。
+func (c *ConfigFileFlow) GetWatchedConfigFileMetadata() []ConfigFileMetadataItem {
+	if c == nil {
+		return []ConfigFileMetadataItem{}
+	}
+	c.fclock.RLock()
+	defer c.fclock.RUnlock()
+	items := make([]ConfigFileMetadataItem, 0, len(c.configFilePool))
+	for cacheKey, repo := range c.configFilePool {
+		metadata := repo.configFileMetadata
+		item := ConfigFileMetadataItem{
+			Namespace: metadata.GetNamespace(),
+			Group:     metadata.GetFileGroup(),
+			FileName:  metadata.GetFileName(),
+			Version:   c.getConfigFileNotifiedVersion(cacheKey, false),
+		}
+		// md5 取本地已落盘的远端配置文件内容 MD5；repo 尚未拉取到文件时留空
+		if cf := repo.loadRemoteFile(); cf != nil {
+			item.Md5 = cf.GetMd5()
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// ConfigFileContentItem 配置文件元数据 + 内容，供配置生效查询 ACK 应答使用。
+// 相比 ConfigFileMetadataItem 多 Content 字段，仅在单点查询命中时返回，
+// 不进入 ReportClient 的全量 config_metadata 上报（避免 config_metadata 携带大体积内容膨胀）。
+type ConfigFileContentItem struct {
+	Namespace string `json:"namespace"`
+	Group     string `json:"group"`
+	FileName  string `json:"file_name"`
+	Version   uint64 `json:"version"`
+	Md5       string `json:"md5"`
+	Content   string `json:"content"`
+}
+
+// GetWatchedConfigFileContent 按 (namespace, group, fileName) 查询单个监听配置文件的元数据与内容。
+// 命中返回 (item, true)；未监听或未拉取到远端文件返回 (zero, false)。
+// version/md5/content 三者统一取自同一次 loadRemoteFile 快照，保证自一致——
+// 若分别从 notifiedVersion 与 remoteConfigFileRef 取，长轮询并发更新时会返回
+// "version 旧、content 新" 的撕裂组合，导致服务端误判配置是否生效。
+// 内部持有 fclock 读锁，并发安全；receiver 为 nil 时返回 (zero, false) 避免解引用 panic。
+func (c *ConfigFileFlow) GetWatchedConfigFileContent(namespace, fileGroup, fileName string) (ConfigFileContentItem, bool) {
+	if c == nil {
+		return ConfigFileContentItem{}, false
+	}
+	cacheKey := genCacheKey(namespace, fileGroup, fileName)
+	c.fclock.RLock()
+	defer c.fclock.RUnlock()
+	repo, ok := c.configFilePool[cacheKey]
+	if !ok || repo == nil {
+		return ConfigFileContentItem{}, false
+	}
+	item := ConfigFileContentItem{
+		Namespace: namespace,
+		Group:     fileGroup,
+		FileName:  fileName,
+	}
+	// 单次快照取值，保证 version/md5/content 自一致
+	cf := repo.loadRemoteFile()
+	if cf == nil {
+		// 尚未拉取到远端文件：仅回退 notifiedVersion，内容与 md5 留空
+		item.Version = c.getConfigFileNotifiedVersion(cacheKey, false)
+		return item, true
+	}
+	item.Version = cf.GetVersion()
+	item.Md5 = cf.GetMd5()
+	item.Content = cf.GetContent()
+	return item, true
+}
+
+// SetWatchChangedCallback 注入配置文件监听列表变化时的回调。
+// 由 Engine 在创建 ReportClientCallBack 后注入，cb 通常为 callback.TriggerNow；
+// cb 为 nil 时清除回调。回调在新配置 Subscribe 时被异步调用。
+func (c *ConfigFileFlow) SetWatchChangedCallback(cb func()) {
+	c.fclock.Lock()
+	defer c.fclock.Unlock()
+	c.onWatchChanged = cb
 }
 
 func (c *ConfigFileFlow) updateNotifiedVersion(cacheKey string, version uint64) {

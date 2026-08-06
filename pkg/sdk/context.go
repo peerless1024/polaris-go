@@ -59,17 +59,35 @@ type SDKToken struct {
 	HostName string
 }
 
+// clientIDSeq 进程级自增序列。
+// 同一进程内每创建一个 SDKContext 都会自增一次；从第二个 context 起把序号拼到 UID 末尾，
+// 保证同进程多 context 的 clientID 互不相同（服务端按 clientID 缓存 client 记录、
+// 绑定 WatchClientEvents stream，重复会导致互相覆盖）。首个 context 不加后缀以保持向后兼容。
+var clientIDSeq uint64
+
+// InitUID 按优先级链生成客户端唯一标识 UID。
+// 优先级：PodName > HostName+PID > IP+PID > UUID 兜底。
+// 同进程创建多个 SDKContext 时，从第二个起追加 "-<seq>" 后缀（seq 从 1 开始）以保证唯一：
+// 服务端按 clientID 缓存 client 记录并绑定 WatchClientEvents stream，重复会导致互相覆盖。
+// 首个 context（seq==0）不加后缀，UID 与历史版本完全一致，避免破坏既有按 clientID 匹配的
+// 运维脚本、监控看板与告警规则。UUID 兜底档本就全局唯一，不追加 seq。
 func (sdkToken *SDKToken) InitUID() {
+	seq := atomic.AddUint64(&clientIDSeq, 1) - 1
+	// 首个 context 保持历史格式，向后兼容
+	suffix := ""
+	if seq > 0 {
+		suffix = "-" + strconv.FormatUint(seq, 10)
+	}
 	if sdkToken.PodName != "" {
-		sdkToken.UID = sdkToken.PodName
+		sdkToken.UID = sdkToken.PodName + suffix
 		return
 	}
 	if sdkToken.HostName != "" {
-		sdkToken.UID = sdkToken.HostName + "-" + strconv.Itoa(int(sdkToken.PID))
+		sdkToken.UID = sdkToken.HostName + "-" + strconv.Itoa(int(sdkToken.PID)) + suffix
 		return
 	}
 	if sdkToken.IP != "" {
-		sdkToken.UID = sdkToken.IP + "-" + strconv.Itoa(int(sdkToken.PID))
+		sdkToken.UID = sdkToken.IP + "-" + strconv.Itoa(int(sdkToken.PID)) + suffix
 		return
 	}
 	sdkToken.UID = strings.ToUpper(uuid.New().String())

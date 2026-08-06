@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
+	apiservice "github.com/polarismesh/specification/source/go/api/v1/service_manage"
 
 	"github.com/polarismesh/polaris-go/pkg/config"
 	"github.com/polarismesh/polaris-go/pkg/model"
@@ -88,6 +89,20 @@ type ServerConnector interface {
 	// UpdateServers 更新服务端地址
 	// 异常场景：当地址列表为空，或者地址全部连接失败，则返回error，调用者需进行重试
 	UpdateServers(key *model.ServiceEventKey) error
+	// WatchClientEvents 建立 WatchClientEvents 双向流，用于接收服务端 PUSH 查询并回 ACK。
+	// 返回的流由调用方持有，用完后必须调用 Close 释放底层连接；流建立失败返回 error。
+	WatchClientEvents() (ClientEventStream, error)
+}
+
+// ClientEventStream WatchClientEvents 双向流封装。
+// 调用方持有并在用完后调用 Close 释放底层连接，避免连接泄漏。
+type ClientEventStream interface {
+	// Send 上行 ClientEvent（WATCH 首帧或 ACK）
+	Send(*apiservice.ClientEvent) error
+	// Recv 接收服务端下行的 PUSH 事件，流关闭或出错时返回 error
+	Recv() (*apiservice.ClientEvent, error)
+	// Close 关闭双向流并释放底层连接与上下文
+	Close() error
 }
 
 // 初始化

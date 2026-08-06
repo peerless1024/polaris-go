@@ -1,0 +1,441 @@
+/**
+ * Tencent is pleased to support the open source community by making polaris-go available.
+ *
+ * Copyright (C) 2019 THL A29 Limited, a Tencent company. All rights reserved.
+ *
+ * Licensed under the BSD 3-Clause License (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://opensource.org/licenses/BSD-3-Clause
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed
+ * under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ */
+
+package startup
+
+import (
+	"encoding/json"
+	"errors"
+	"runtime/debug"
+	"sync"
+	"time"
+
+	apiservice "github.com/polarismesh/specification/source/go/api/v1/service_manage"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	configflow "github.com/polarismesh/polaris-go/pkg/flow/configuration"
+	"github.com/polarismesh/polaris-go/pkg/log"
+	"github.com/polarismesh/polaris-go/pkg/plugin/serverconnector"
+)
+
+const (
+	// watchInitialRetryDelay 初始重连退避
+	watchInitialRetryDelay = 1 * time.Second
+	// watchMaxRetryDelay 重连退避上限
+	watchMaxRetryDelay = 30 * time.Second
+	// watchLogSuppressAfter 连续失败超过该次数后降低日志频率，避免服务端长期不可用时刷屏
+	watchLogSuppressAfter = 5
+	// watchLogSuppressEvery 降频后每 N 次失败打印一条日志
+	watchLogSuppressEvery = 10
+	// watchMaxAckContentBytes ACK 中 content 的最大字节数。
+	// 超限则截断并置 content_truncated=true，避免超大配置触发 gRPC 消息体上限（服务端默认 4MB）
+	// 导致 ACK 永远发不出、服务端 waiter 超时。
+	watchMaxAckContentBytes = 512 * 1024
+)
+
+// ACK 中 applied=false 的原因取值，供服务端/运维区分具体场景
+const (
+	// reasonBadContent PUSH content 不是合法 JSON
+	reasonBadContent = "bad_content"
+	// reasonUnknownKind 未知的事件类型
+	reasonUnknownKind = "unknown_kind"
+	// reasonConfigDisabled 客户端未启用配置中心
+	reasonConfigDisabled = "config_disabled"
+	// reasonNotWatched 客户端未监听该配置文件
+	reasonNotWatched = "not_watched"
+)
+
+var (
+	// errWatcherClosed watcher 已收到关闭信号，用于中断建流流程
+	errWatcherClosed = errors.New("client event watcher closed")
+	// errHandlePushPanic 单条 PUSH 处理过程中发生 panic 并已被 recover
+	errHandlePushPanic = errors.New("handle push event panicked")
+)
+
+// WatchedConfigFileProvider 配置文件监听元数据提供者，解耦 watcher 与具体 ConfigFileFlow，便于测试替换。
+// 导出以便调用方（Engine）显式声明变量类型，避免把 typed-nil 指针装入接口——
+// typed-nil 装箱后接口值非 nil，会绕过 nil 判断并在调用方法时解引用 nil receiver。
+type WatchedConfigFileProvider interface {
+	GetWatchedConfigFileMetadata() []configflow.ConfigFileMetadataItem
+	// GetWatchedConfigFileContent 按 (namespace, group, fileName) 查询单个监听配置文件的元数据与内容。
+	// 命中返回 (item, true)；未监听返回 (zero, false)。
+	GetWatchedConfigFileContent(namespace, fileGroup, fileName string) (configflow.ConfigFileContentItem, bool)
+}
+
+// ClientEventWatcher 管理 WatchClientEvents 双向流生命周期。
+// 启动时建流并发送 WATCH 首帧自证身份，持续接收服务端 PUSH 查询，
+// 解析 content 按 kind 分发处理后回 ACK（index 回带 PUSH 的 index）。
+// 流断开时指数退避重连，每次重连都重发 WATCH 首帧覆盖服务端旧 stream 绑定。
+type ClientEventWatcher struct {
+	connector  serverconnector.ServerConnector
+	configFlow WatchedConfigFileProvider
+	logCtx     *log.ContextLogger
+	clientID   string
+	closeCh    chan struct{}
+	done       chan struct{}
+	retryDelay time.Duration
+	streamMu   sync.Mutex
+	stream     serverconnector.ClientEventStream
+	// failCount 连续建流/接收失败次数，用于日志降频（仅 runLoop 单协程读写）
+	failCount int
+}
+
+// NewClientEventWatcher 创建客户端事件监听器。
+// connector 用于建立 WatchClientEvents 流；configFlow 用于查询配置文件 version/md5，
+// 配置中心未启用时传 nil（仍建流应答，但所有 config 查询回 applied=false）。
+func NewClientEventWatcher(connector serverconnector.ServerConnector, clientID string,
+	configFlow WatchedConfigFileProvider, logCtx *log.ContextLogger) *ClientEventWatcher {
+	return &ClientEventWatcher{
+		connector:  connector,
+		clientID:   clientID,
+		configFlow: configFlow,
+		logCtx:     logCtx,
+		closeCh:    make(chan struct{}),
+		done:       make(chan struct{}),
+	}
+}
+
+// Start 启动监听协程，非阻塞。
+func (w *ClientEventWatcher) Start() {
+	go w.runLoop()
+}
+
+// Close 关闭监听器，阻塞至 runLoop 退出。
+// 先关闭 closeCh 通知 runLoop 停止，再主动关闭当前 stream 中断可能阻塞的 Recv，最后等待 runLoop 退出。
+func (w *ClientEventWatcher) Close() {
+	select {
+	case <-w.closeCh:
+		return
+	default:
+		close(w.closeCh)
+	}
+	// 中断可能阻塞的 Recv：关闭 stream 的 ctx 使 Recv 返回错误
+	w.streamMu.Lock()
+	s := w.stream
+	w.stream = nil
+	w.streamMu.Unlock()
+	if s != nil {
+		_ = s.Close()
+	}
+	<-w.done
+}
+
+// runLoop 主驱动循环：建流+发 WATCH → 接收循环，失败/断开指数退避重连。
+// 顶层 recover 兜底：watcher 运行在独立协程，任何未捕获 panic 都会终止宿主进程，
+// 故在此收敛为一条 error 日志并退出 watcher，SDK 其余能力不受影响。
+func (w *ClientEventWatcher) runLoop() {
+	defer close(w.done)
+	defer func() {
+		if r := recover(); r != nil {
+			w.errorf(
+				"client event watcher panic recovered, watcher exited, clientID %s: %v\nstack: %s",
+				w.clientID, r, string(debug.Stack()))
+		}
+	}()
+	w.retryDelay = watchInitialRetryDelay
+	for {
+		if w.isClosed() {
+			return
+		}
+		stream, err := w.connectAndWatch()
+		if err != nil {
+			// 服务端不支持该接口（旧版本服务端）时重连无意义，直接退出避免无限重试与日志刷屏
+			if isUnimplemented(err) {
+				w.warnf(
+					"watch client events unimplemented by server, watcher disabled, clientID %s: %v", w.clientID, err)
+				return
+			}
+			w.failCount++
+			w.logConnectFailure(err)
+			if !w.backoffSleep() {
+				return
+			}
+			continue
+		}
+		// 建连成功，重置退避与失败计数
+		w.retryDelay = watchInitialRetryDelay
+		w.failCount = 0
+		recvErr := w.recvLoop(stream)
+		// 无论正常/异常都关闭流
+		if cerr := stream.Close(); cerr != nil {
+			w.warnf("watch client events stream close error: %v", cerr)
+		}
+		if w.isClosed() {
+			return
+		}
+		if recvErr != nil {
+			w.failCount++
+			w.logConnectFailure(recvErr)
+			if !w.backoffSleep() {
+				return
+			}
+			continue
+		}
+	}
+}
+
+// logConnectFailure 记录建流/接收失败，连续失败超过阈值后降频，避免服务端长期不可用时刷满日志。
+func (w *ClientEventWatcher) logConnectFailure(err error) {
+	if w.failCount > watchLogSuppressAfter && w.failCount%watchLogSuppressEvery != 0 {
+		return
+	}
+	w.warnf(
+		"watch client events failed (consecutive %d), retry after %v, clientID %s: %v",
+		w.failCount, w.retryDelay, w.clientID, err)
+}
+
+// isUnimplemented 判断错误是否为 gRPC Unimplemented（服务端未实现该接口）。
+// 服务端错误可能被 SDK 包装，故同时检查 errors 链上的 gRPC status。
+func isUnimplemented(err error) bool {
+	if err == nil {
+		return false
+	}
+	if st, ok := status.FromError(err); ok && st.Code() == codes.Unimplemented {
+		return true
+	}
+	// SDK 包装后的错误：逐层解包再判断
+	for inner := err; inner != nil; {
+		unwrapped, ok := inner.(interface{ Unwrap() error })
+		if !ok {
+			break
+		}
+		inner = unwrapped.Unwrap()
+		if st, ok := status.FromError(inner); ok && st.Code() == codes.Unimplemented {
+			return true
+		}
+	}
+	return false
+}
+
+// connectAndWatch 建立双向流并发送 WATCH 首帧。每次重连都会调用。
+func (w *ClientEventWatcher) connectAndWatch() (serverconnector.ClientEventStream, error) {
+	stream, err := w.connector.WatchClientEvents()
+	if err != nil {
+		return nil, err
+	}
+	// 建流与 Close 存在竞态窗口：若此刻已收到关闭信号，Close 取到的是旧 stream，
+	// 新建的流不会被释放，故主动关闭并退出，避免连接泄漏。
+	if w.isClosed() {
+		_ = stream.Close()
+		return nil, errWatcherClosed
+	}
+	w.setStream(stream)
+	// 发送 WATCH 首帧自证身份，client_id 与 ReportClient 上报一致
+	if err := stream.Send(&apiservice.ClientEvent{
+		Type:     apiservice.ClientEvent_WATCH,
+		ClientId: w.clientID,
+	}); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	w.infof("watch client events stream established, clientID %s", w.clientID)
+	return stream, nil
+}
+
+// setStream 记录当前活跃流，供 Close 主动中断阻塞的 Recv。
+func (w *ClientEventWatcher) setStream(s serverconnector.ClientEventStream) {
+	w.streamMu.Lock()
+	w.stream = s
+	w.streamMu.Unlock()
+}
+
+// recvLoop 持续接收服务端 PUSH 并回 ACK，直到流关闭/出错。
+func (w *ClientEventWatcher) recvLoop(stream serverconnector.ClientEventStream) error {
+	for {
+		if w.isClosed() {
+			return nil
+		}
+		event, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		if event.GetType() != apiservice.ClientEvent_PUSH {
+			// 忽略非 PUSH（服务端理论上只下发 PUSH）
+			continue
+		}
+		if err := w.handlePush(stream, event); err != nil {
+			// 单条处理失败不中断接收循环，后续 Recv 出错时再重连
+			w.warnf("handle push event failed, index %d: %v", event.GetIndex(), err)
+		}
+	}
+}
+
+// handlePush 处理一条 PUSH 事件：按 kind 分发，组装 ACK content 并回带 index 上行。
+// 单条 recover：畸形事件导致的 panic 只影响该条应答，不摧毁整个接收循环与宿主进程。
+func (w *ClientEventWatcher) handlePush(stream serverconnector.ClientEventStream,
+	event *apiservice.ClientEvent) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.errorf(
+				"handle push event panic recovered, index %d, clientID %s: %v\nstack: %s",
+				event.GetIndex(), w.clientID, r, string(debug.Stack()))
+			err = errHandlePushPanic
+		}
+	}()
+	ackContent := w.buildAckContent(event.GetContent())
+	if err := stream.Send(&apiservice.ClientEvent{
+		Type:     apiservice.ClientEvent_ACK,
+		ClientId: w.clientID,
+		Index:    event.GetIndex(),
+		Content:  ackContent,
+	}); err != nil {
+		return err
+	}
+	// 运维主动查询才触发，频率低；生产环境需可见以便排查"查询结果为何如此"
+	w.infof("client event ack sent, index %d, clientID %s, ackBytes %d",
+		event.GetIndex(), w.clientID, len(ackContent))
+	return nil
+}
+
+// buildAckContent 解析 PUSH content 按 kind 分发，构造 ACK content JSON。
+// kind=config：按 config.{namespace,group,file_name} 查本地监听文件，
+// 命中回 version/md5/content/applied=true；content 超过上限时截断并置 content_truncated。
+// 未知 kind 或解析失败：回带 reason 的最小 ACK（applied=false），保证不阻塞服务端 waiter。
+func (w *ClientEventWatcher) buildAckContent(pushContent string) string {
+	var query clientEventQuery
+	if err := json.Unmarshal([]byte(pushContent), &query); err != nil {
+		w.warnf("unmarshal push content failed, clientID %s: %v", w.clientID, err)
+		return w.marshalAck(clientEventAck{Applied: false, Reason: reasonBadContent})
+	}
+	if query.Kind != "config" {
+		return w.marshalAck(clientEventAck{Kind: query.Kind, Applied: false, Reason: reasonUnknownKind})
+	}
+	ack := clientEventAck{Kind: query.Kind, Config: query.Config, Applied: false}
+	if w.configFlow == nil {
+		// 配置中心未启用
+		ack.Reason = reasonConfigDisabled
+		return w.marshalAck(ack)
+	}
+	item, ok := w.configFlow.GetWatchedConfigFileContent(
+		query.Config.Namespace, query.Config.Group, query.Config.FileName)
+	if !ok {
+		// 客户端未监听该配置文件
+		ack.Reason = reasonNotWatched
+		return w.marshalAck(ack)
+	}
+	ack.Version = item.Version
+	ack.Md5 = item.Md5
+	ack.Applied = true
+	// 超大配置截断：gRPC 服务端默认消息体上限 4MB，超限会导致 ACK 发送失败、服务端 waiter 超时。
+	// md5 仍为完整内容的摘要，服务端可据此校验并按需另行拉取全量内容。
+	if len(item.Content) > watchMaxAckContentBytes {
+		ack.Content = item.Content[:watchMaxAckContentBytes]
+		ack.ContentTruncated = true
+		ack.ContentLength = len(item.Content)
+		w.warnf(
+			"ack content truncated, file %s/%s/%s, total %d bytes, limit %d bytes",
+			query.Config.Namespace, query.Config.Group, query.Config.FileName,
+			len(item.Content), watchMaxAckContentBytes)
+	} else {
+		ack.Content = item.Content
+	}
+	return w.marshalAck(ack)
+}
+
+// marshalAck 序列化 ACK；失败时记日志并回退为带 reason 的最小应答，避免服务端收到无法诊断的空对象。
+func (w *ClientEventWatcher) marshalAck(ack clientEventAck) string {
+	data, err := json.Marshal(ack)
+	if err != nil {
+		w.warnf("marshal ack content failed, clientID %s: %v", w.clientID, err)
+		return `{"applied":false,"reason":"marshal_failed"}`
+	}
+	return string(data)
+}
+
+// backoffSleep 指数退避等待，收到关闭信号时返回 false 终止重连。
+func (w *ClientEventWatcher) backoffSleep() bool {
+	select {
+	case <-w.closeCh:
+		return false
+	case <-time.After(w.retryDelay):
+	}
+	w.retryDelay *= 2
+	if w.retryDelay > watchMaxRetryDelay {
+		w.retryDelay = watchMaxRetryDelay
+	}
+	return true
+}
+
+func (w *ClientEventWatcher) isClosed() bool {
+	select {
+	case <-w.closeCh:
+		return true
+	default:
+		return false
+	}
+}
+
+// warnf / errorf / infof 为日志的安全封装：logCtx 或其 baseLogger 未注入时静默跳过，
+// 避免日志本身成为 panic 源（watcher 运行在独立协程，panic 会终止宿主进程）。
+func (w *ClientEventWatcher) warnf(format string, args ...interface{}) {
+	if w.logCtx == nil {
+		return
+	}
+	if l := w.logCtx.GetBaseLogger(); l != nil {
+		l.Warnf(format, args...)
+	}
+}
+
+func (w *ClientEventWatcher) errorf(format string, args ...interface{}) {
+	if w.logCtx == nil {
+		return
+	}
+	if l := w.logCtx.GetBaseLogger(); l != nil {
+		l.Errorf(format, args...)
+	}
+}
+
+func (w *ClientEventWatcher) infof(format string, args ...interface{}) {
+	if w.logCtx == nil {
+		return
+	}
+	if l := w.logCtx.GetBaseLogger(); l != nil {
+		l.Infof(format, args...)
+	}
+}
+
+// clientEventQuery 服务端 PUSH 下发的查询指令 JSON 结构
+type clientEventQuery struct {
+	Kind   string              `json:"kind"`
+	Config clientEventQueryCfg `json:"config"`
+}
+
+// clientEventQueryCfg 查询目标配置文件三元组（snake_case 与服务端配置中心一致）
+type clientEventQueryCfg struct {
+	Namespace string `json:"namespace"`
+	Group     string `json:"group"`
+	FileName  string `json:"file_name"`
+}
+
+// clientEventAck 客户端 ACK 应答 JSON 结构
+type clientEventAck struct {
+	Kind    string              `json:"kind"`
+	Config  clientEventQueryCfg `json:"config"`
+	Version uint64              `json:"version,omitempty"`
+	Md5     string              `json:"md5,omitempty"`
+	// Content 为客户端当前持有的配置文件内容，命中监听文件时返回（即便为空串也显式输出，
+	// 供服务端区分"内容为空"与"未返回内容"）。未命中场景(applied=false)不进入此分支。
+	Content string `json:"content"`
+	// ContentTruncated 标记 Content 是否因超过上限被截断；为 true 时 ContentLength 给出原始长度
+	ContentTruncated bool `json:"content_truncated,omitempty"`
+	// ContentLength 原始内容字节数，仅在截断时输出
+	ContentLength int  `json:"content_length,omitempty"`
+	Applied       bool `json:"applied"`
+	// Reason applied=false 的具体原因，便于运维区分"未监听"与"配置中心未启用"等场景
+	Reason string `json:"reason,omitempty"`
+}

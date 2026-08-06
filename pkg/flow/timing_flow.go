@@ -41,9 +41,14 @@ func (e *Engine) ScheduleTask(task *model.PeriodicTask) (chan<- *model.PriorityT
 
 // addClientReportTask 添加客户端定期上报任务
 func (e *Engine) addClientReportTask() (model.TaskValues, error) {
-	callback, err := startup.NewReportClientCallBack(e.configuration, e.plugins, e.globalCtx)
+	configFileFlow := e.getConfigFileFlow()
+	callback, err := startup.NewReportClientCallBack(e.configuration, e.plugins, e.globalCtx, configFileFlow)
 	if err != nil {
 		return nil, err
+	}
+	// 注入即时上报回调：配置文件监听列表变化时异步触发一次 ReportClient
+	if configFileFlow != nil {
+		configFileFlow.SetWatchChangedCallback(callback.TriggerNow)
 	}
 	_, taskValues := e.ScheduleTask(&model.PeriodicTask{
 		Name:         taskClientReport,
@@ -53,6 +58,22 @@ func (e *Engine) addClientReportTask() (model.TaskValues, error) {
 		Period:       e.configuration.GetGlobal().GetAPI().GetReportInterval() / 2,
 	})
 	return taskValues, nil
+}
+
+// addClientEventWatcher 创建并启动 WatchClientEvents 长连接监听器。
+// 非致命：watcher 启动失败仅记日志、不影响 SDK 核心功能；配置中心未启用时 provider 为真 nil 接口，
+// watcher 仍建流应答（config 查询回 applied=false）。
+func (e *Engine) addClientEventWatcher() {
+	// 显式声明接口变量并仅在非 nil 时赋值：直接传 e.getConfigFileFlow() 会把 typed-nil 指针
+	// 装入接口，导致 watcher 内 `configFlow != nil` 判断失效并解引用 nil receiver 而 panic。
+	var provider startup.WatchedConfigFileProvider
+	if configFileFlow := e.getConfigFileFlow(); configFileFlow != nil {
+		provider = configFileFlow
+	}
+	watcher := startup.NewClientEventWatcher(e.connector, e.globalCtx.GetClientId(), provider, e.logCtx)
+	e.clientEventWatcher = watcher
+	watcher.Start()
+	e.logCtx.GetBaseLogger().Infof("client event watcher started, clientID %s", e.globalCtx.GetClientId())
 }
 
 // addSDKConfigReportTask 添加定期上报sdk配置任务
