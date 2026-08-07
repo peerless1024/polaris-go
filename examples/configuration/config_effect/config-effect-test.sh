@@ -18,7 +18,7 @@
 # 前置条件:
 #   1. 北极星服务端(Polaris Server 商业版)已启动，且已更新含 WatchClientEvents 逻辑的版本
 #   2. Go 环境已安装
-#   3. 服务端 maintain HTTP 端口可达 (默认 8080，可用 --maintain-port 指定)
+#   3. 服务端 maintain HTTP 端口可达 (默认 8090，可用 --maintain-port 指定)
 #
 # 验证原理:
 #   - 客户端启动后通过 ReportClient 上报 clientID，并建立 WatchClientEvents 长连接
@@ -33,7 +33,7 @@ set -euo pipefail
 # ======================== 默认配置 ========================
 POLARIS_SERVER="${POLARIS_SERVER:-127.0.0.1}"
 POLARIS_TOKEN="${POLARIS_TOKEN:-}"
-MAINTAIN_PORT="${MAINTAIN_PORT:-8080}"
+MAINTAIN_PORT="${MAINTAIN_PORT:-8090}"
 NAMESPACE="${NAMESPACE:-default}"
 FILE_GROUP="${FILE_GROUP:-polaris-config-example}"
 FILE_NAME="${FILE_NAME:-config-effect-example.yaml}"
@@ -68,7 +68,7 @@ while [[ $# -gt 0 ]]; do
             echo "选项:"
             echo "  --polaris-server <地址>  北极星服务端地址 (默认: 127.0.0.1)"
             echo "  --polaris-token <令牌>   北极星鉴权令牌 (默认: 空)"
-            echo "  --maintain-port <端口>   服务端 maintain HTTP 端口 (默认: 8080)"
+            echo "  --maintain-port <端口>   服务端 maintain HTTP 端口 (默认: 8090)"
             echo "  --namespace <命名空间>   命名空间 (默认: default)"
             echo "  --group <配置组>         配置文件组 (默认: polaris-config-example)"
             echo "  --file <文件名>          配置文件名 (默认: config-effect-example.yaml)"
@@ -107,14 +107,26 @@ trap cleanup EXIT
 
 # ======================== 工具函数 ========================
 
-log_info()  { echo -e "${GREEN}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $(date '+%Y-%m-%d %H:%M:%S') $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') $*"; }
+log_info()  { echo -e "${GREEN}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC} $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
+log_error() { echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 log_step() {
-    echo ""
-    echo -e "${CYAN}========================================${NC}"
-    echo -e "${CYAN}  $*${NC}"
-    echo -e "${CYAN}========================================${NC}"
+    echo "" >&2
+    echo -e "${CYAN}========================================${NC}" >&2
+    echo -e "${CYAN}  $*${NC}" >&2
+    echo -e "${CYAN}========================================${NC}" >&2
+}
+
+# setup_test_log 把后续 stdout/stderr 同时写入日志文件（带时间戳），终端保留彩色输出。
+# 日志文件经 sed 去除 ANSI 颜色码便于 grep/less。
+TEST_LOG_FILE="${LOG_DIR}/config-effect-$(date +%Y%m%d_%H%M%S).log"
+setup_test_log() {
+	mkdir -p "${LOG_DIR}"
+	{
+		echo "===== 配置生效查询验证日志 $(date '+%Y-%m-%d %H:%M:%S') ====="
+		echo "Command: $0 $*"
+	} > "${TEST_LOG_FILE}"
+	exec > >(tee >(sed -u 's/\x1b\[[0-9;]*m//g' >> "${TEST_LOG_FILE}")) 2>&1
 }
 
 # wait_for_http 轮询 HTTP 端口直到返回响应，同时检查进程存活。
@@ -265,6 +277,7 @@ record_result() {
 
 # ======================== 主流程 ========================
 main() {
+    setup_test_log "$@"
     echo ""
     echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║          配置生效查询验证脚本                     ║${NC}"
@@ -437,6 +450,8 @@ main() {
         echo -e "${YELLOW}  3. 客户端未订阅该配置文件 (检查 /config 的 version/md5 非空)${NC}"
         echo -e "${YELLOW}  4. WatchClientEvents 长连接未建立 (查 client.log 是否有 watcher 启动日志)${NC}"
     fi
+    echo ""
+    log_info "完整日志: ${TEST_LOG_FILE}"
     echo ""
 }
 

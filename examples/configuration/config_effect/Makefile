@@ -9,6 +9,10 @@ endif
 build: clean
 	go build -o bin *.go
 
+.PHONY: build-x86
+build-x86: clean
+	GOOS=linux GOARCH=amd64 go build -o x86-bin *.go
+
 .PHONY: run
 run: build
 	./bin

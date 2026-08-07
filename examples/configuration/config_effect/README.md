@@ -32,7 +32,7 @@
 
 1. 北极星服务端（Polaris Server **商业版**）已启动，且已更新含 `WatchClientEvents` 逻辑的版本
 2. Go 环境已安装
-3. 服务端 maintain HTTP 端口可达（默认 `8080`，可用 `--maintain-port` 指定）
+3. 服务端 maintain HTTP 端口可达（默认 `8090`，可用 `--maintain-port` 指定）
 4. 配置文件组 `polaris-config-example`（默认）已存在，或客户端有创建权限
 
 ## 使用方法
@@ -40,7 +40,7 @@
 ```bash
 chmod +x config-effect-test.sh
 
-# 基本用法（服务端在本机、maintain 端口 8080）
+# 基本用法（服务端在本机、maintain 端口 8090）
 ./config-effect-test.sh
 
 # 指定服务端地址与鉴权 token
@@ -60,7 +60,7 @@ chmod +x config-effect-test.sh
 |------|--------|------|
 | `--polaris-server` | `127.0.0.1` | 北极星服务端地址 |
 | `--polaris-token` | 空 | 北极星鉴权令牌 |
-| `--maintain-port` | `8080` | 服务端 maintain HTTP 端口 |
+| `--maintain-port` | `8090` | 服务端 maintain HTTP 端口 |
 | `--namespace` | `default` | 命名空间 |
 | `--group` | `polaris-config-example` | 配置文件组 |
 | `--file` | `config-effect-example.yaml` | 配置文件名 |
