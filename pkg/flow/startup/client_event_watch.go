@@ -147,9 +147,11 @@ func (w *ClientEventWatcher) runLoop() {
 	defer close(w.done)
 	defer func() {
 		if r := recover(); r != nil {
-			w.errorf(
-				"client event watcher panic recovered, watcher exited, clientID %s: %v\nstack: %s",
-				w.clientID, r, string(debug.Stack()))
+			if l := w.logger(); l != nil {
+				l.Errorf(
+					"client event watcher panic recovered, watcher exited, clientID %s: %v\nstack: %s",
+					w.clientID, r, string(debug.Stack()))
+			}
 		}
 	}()
 	w.retryDelay = watchInitialRetryDelay
@@ -167,7 +169,9 @@ func (w *ClientEventWatcher) runLoop() {
 			w.retryDelay = watchInitialRetryDelay
 			recvErr := w.recvLoop(stream)
 			if cerr := stream.Close(); cerr != nil {
-				w.warnf("watch client events stream close error: %v", cerr)
+				if l := w.logger(); l != nil {
+					l.Warnf("watch client events stream close error: %v", cerr)
+				}
 			}
 			failed = recvErr
 		}
@@ -178,9 +182,11 @@ func (w *ClientEventWatcher) runLoop() {
 			// 服务端不支持该接口（旧版本服务端）时重连无意义，直接退出避免无限重试与日志刷屏。
 			// Unimplemented 可能从 connectAndWatch 或 recvLoop 任一路径返回，统一在此判断。
 			if isUnimplemented(failed) {
-				w.warnf(
-					"watch client events unimplemented by server, watcher disabled, clientID %s: %v",
-					w.clientID, failed)
+				if l := w.logger(); l != nil {
+					l.Warnf(
+						"watch client events unimplemented by server, watcher disabled, clientID %s: %v",
+						w.clientID, failed)
+				}
 				return
 			}
 			w.failCount++
@@ -201,12 +207,16 @@ func (w *ClientEventWatcher) logConnectFailure(err error) {
 	if w.failCount > watchLogSuppressAfter && w.failCount%watchLogSuppressEvery != 0 {
 		return
 	}
-	msg := "watch client events failed (consecutive %d), retry after %v, clientID %s: %v"
-	if shouldLogFailureAsWarn(w.failCount, err) {
-		w.warnf(msg, w.failCount, w.retryDelay, w.clientID, err)
+	l := w.logger()
+	if l == nil {
 		return
 	}
-	w.errorf(msg, w.failCount, w.retryDelay, w.clientID, err)
+	msg := "watch client events failed (consecutive %d), retry after %v, clientID %s: %v"
+	if shouldLogFailureAsWarn(w.failCount, err) {
+		l.Warnf(msg, w.failCount, w.retryDelay, w.clientID, err)
+		return
+	}
+	l.Errorf(msg, w.failCount, w.retryDelay, w.clientID, err)
 }
 
 // shouldLogFailureAsWarn 判断本次建流失败记 warn（true）还是 error（false）。
@@ -276,7 +286,9 @@ func (w *ClientEventWatcher) connectAndWatch() (serverconnector.ClientEventStrea
 		_ = stream.Close()
 		return nil, err
 	}
-	w.infof("watch client events stream established, clientID %s", w.clientID)
+	if l := w.logger(); l != nil {
+		l.Infof("watch client events stream established, clientID %s", w.clientID)
+	}
 	return stream, nil
 }
 
@@ -303,7 +315,9 @@ func (w *ClientEventWatcher) recvLoop(stream serverconnector.ClientEventStream) 
 		}
 		if err := w.handlePush(stream, event); err != nil {
 			// 单条处理失败不中断接收循环，后续 Recv 出错时再重连
-			w.warnf("handle push event failed, index %d: %v", event.GetIndex(), err)
+			if l := w.logger(); l != nil {
+				l.Warnf("handle push event failed, index %d: %v", event.GetIndex(), err)
+			}
 		}
 	}
 }
@@ -314,9 +328,11 @@ func (w *ClientEventWatcher) handlePush(stream serverconnector.ClientEventStream
 	event *apiservice.ClientEvent) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			w.errorf(
-				"handle push event panic recovered, index %d, clientID %s: %v\nstack: %s",
-				event.GetIndex(), w.clientID, r, string(debug.Stack()))
+			if l := w.logger(); l != nil {
+				l.Errorf(
+					"handle push event panic recovered, index %d, clientID %s: %v\nstack: %s",
+					event.GetIndex(), w.clientID, r, string(debug.Stack()))
+			}
 			err = errHandlePushPanic
 		}
 	}()
@@ -330,8 +346,10 @@ func (w *ClientEventWatcher) handlePush(stream serverconnector.ClientEventStream
 		return err
 	}
 	// 运维主动查询才触发，频率低；生产环境需可见以便排查"查询结果为何如此"
-	w.infof("client event ack sent, index %d, clientID %s, ackBytes %d",
-		event.GetIndex(), w.clientID, len(ackContent))
+	if l := w.logger(); l != nil {
+		l.Infof("client event ack sent, index %d, clientID %s, ackBytes %d",
+			event.GetIndex(), w.clientID, len(ackContent))
+	}
 	return nil
 }
 
@@ -342,7 +360,9 @@ func (w *ClientEventWatcher) handlePush(stream serverconnector.ClientEventStream
 func (w *ClientEventWatcher) buildAckContent(pushContent string) string {
 	var query clientEventQuery
 	if err := json.Unmarshal([]byte(pushContent), &query); err != nil {
-		w.warnf("unmarshal push content failed, clientID %s: %v", w.clientID, err)
+		if l := w.logger(); l != nil {
+			l.Warnf("unmarshal push content failed, clientID %s: %v", w.clientID, err)
+		}
 		return w.marshalAck(clientEventAck{Applied: false, Reason: reasonBadContent})
 	}
 	if query.Kind != "config" {
@@ -370,10 +390,12 @@ func (w *ClientEventWatcher) buildAckContent(pushContent string) string {
 		ack.Content = item.Content[:watchMaxAckContentBytes]
 		ack.ContentTruncated = true
 		ack.ContentLength = len(item.Content)
-		w.warnf(
-			"ack content truncated, file %s/%s/%s, total %d bytes, limit %d bytes",
-			query.Config.Namespace, query.Config.Group, query.Config.FileName,
-			len(item.Content), watchMaxAckContentBytes)
+		if l := w.logger(); l != nil {
+			l.Warnf(
+				"ack content truncated, file %s/%s/%s, total %d bytes, limit %d bytes",
+				query.Config.Namespace, query.Config.Group, query.Config.FileName,
+				len(item.Content), watchMaxAckContentBytes)
+		}
 	} else {
 		ack.Content = item.Content
 	}
@@ -384,7 +406,9 @@ func (w *ClientEventWatcher) buildAckContent(pushContent string) string {
 func (w *ClientEventWatcher) marshalAck(ack clientEventAck) string {
 	data, err := json.Marshal(ack)
 	if err != nil {
-		w.warnf("marshal ack content failed, clientID %s: %v", w.clientID, err)
+		if l := w.logger(); l != nil {
+			l.Warnf("marshal ack content failed, clientID %s: %v", w.clientID, err)
+		}
 		return `{"applied":false,"reason":"marshal_failed"}`
 	}
 	return string(data)
@@ -413,33 +437,16 @@ func (w *ClientEventWatcher) isClosed() bool {
 	}
 }
 
-// warnf / errorf / infof 为日志的安全封装：logCtx 或其 baseLogger 未注入时静默跳过，
-// 避免日志本身成为 panic 源（watcher 运行在独立协程，panic 会终止宿主进程）。
-func (w *ClientEventWatcher) warnf(format string, args ...interface{}) {
+// logger 返回用于打印日志的 baseLogger，logCtx 或其 baseLogger 未注入时返回 nil。
+// 调用方须就地判空后直接调用 l.Warnf/Errorf/Infof——不要再包一层 helper 转发：
+// zaplog 使用 zap.AddCallerSkip(2)（plugin/logger/zaplog/logger.go）假定固定栈深度，
+// 多一层转发会让日志中的 caller 指向该 helper 所在行，而非真正的业务调用点。
+// 判空是必需的：watcher 运行在独立协程，日志本身 panic 会终止宿主进程。
+func (w *ClientEventWatcher) logger() log.Logger {
 	if w.logCtx == nil {
-		return
+		return nil
 	}
-	if l := w.logCtx.GetBaseLogger(); l != nil {
-		l.Warnf(format, args...)
-	}
-}
-
-func (w *ClientEventWatcher) errorf(format string, args ...interface{}) {
-	if w.logCtx == nil {
-		return
-	}
-	if l := w.logCtx.GetBaseLogger(); l != nil {
-		l.Errorf(format, args...)
-	}
-}
-
-func (w *ClientEventWatcher) infof(format string, args ...interface{}) {
-	if w.logCtx == nil {
-		return
-	}
-	if l := w.logCtx.GetBaseLogger(); l != nil {
-		l.Infof(format, args...)
-	}
+	return w.logCtx.GetBaseLogger()
 }
 
 // clientEventQuery 服务端 PUSH 下发的查询指令 JSON 结构
