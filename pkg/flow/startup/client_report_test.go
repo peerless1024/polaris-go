@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	configflow "github.com/polarismesh/polaris-go/pkg/flow/configuration"
+	"github.com/polarismesh/polaris-go/pkg/model"
 )
 
 // TestConfigMetadataPayload_Marshal 验证 ReportClient 上报 config_metadata 的 JSON 结构，
@@ -77,4 +78,104 @@ func TestClientInfoFileName_Format(t *testing.T) {
 	assert.Equal(t, "client_info_c1.json", name)
 	assert.True(t, strings.HasSuffix(name, ".json"), "应以 .json 结尾")
 	assert.True(t, strings.HasPrefix(name, "client_info_"), "应以 client_info_ 开头")
+}
+
+// TestClientInfoLoadCandidates_Order 验证回退读取顺序：
+// 首选按 clientID 隔离的文件，次选固定名共享文件。
+// 顺序错误会导致重启换 PID 时读不到可复用的地域缓存。
+func TestClientInfoLoadCandidates_Order(t *testing.T) {
+	candidates := clientInfoLoadCandidates("host-1234-0")
+	assert.Len(t, candidates, 2)
+	assert.Equal(t, "client_info_host-1234-0.json", candidates[0], "首选按 clientID 隔离的文件")
+	assert.Equal(t, clientInfoSharedFile, candidates[1], "次选固定名共享文件")
+}
+
+// TestClientInfoSharedFileConstant 验证固定名共享文件常量稳定。
+func TestClientInfoSharedFileConstant(t *testing.T) {
+	assert.Equal(t, "client_info.json", clientInfoSharedFile)
+}
+
+// TestClientInfoNeedsPersist 验证持久化写入判断逻辑：
+// location 或 configMetadata 任一变化（或首次写入）即需写入；两者均不变时跳过。
+// 重点覆盖 configMetadata 单独变化（订阅列表变化、地域不变）也触发写入的场景，
+// 这是修复 client_info.json 中 config_watch 停留过期快照的关键路径。
+func TestClientInfoNeedsPersist(t *testing.T) {
+	locA := &model.Location{Region: "ap", Zone: "z1", Campus: "c1"}
+	locB := &model.Location{Region: "ap", Zone: "z2", Campus: "c1"}
+	const emptyWatch = `{"kind":"config","config_watch":[]}`
+	const oneWatch = `{"kind":"config","config_watch":[{"namespace":"default","group":"g1","file_name":"f1"}]}`
+
+	tests := []struct {
+		name               string
+		lastLocation       *model.Location
+		newLocation        *model.Location
+		lastConfigMetadata string
+		newConfigMetadata  string
+		want               bool
+	}{
+		{
+			name:               "首次写入_lastLocation为nil_必写",
+			lastLocation:       nil,
+			newLocation:        locA,
+			lastConfigMetadata: "",
+			newConfigMetadata:  "",
+			want:               true,
+		},
+		{
+			name:               "地域与configMetadata均未变化_跳过",
+			lastLocation:       locA,
+			newLocation:        locA,
+			lastConfigMetadata: emptyWatch,
+			newConfigMetadata:  emptyWatch,
+			want:               false,
+		},
+		{
+			name:               "仅地域变化_写入",
+			lastLocation:       locA,
+			newLocation:        locB,
+			lastConfigMetadata: emptyWatch,
+			newConfigMetadata:  emptyWatch,
+			want:               true,
+		},
+		{
+			name:               "仅configMetadata变化_新增订阅_写入",
+			lastLocation:       locA,
+			newLocation:        locA,
+			lastConfigMetadata: emptyWatch,
+			newConfigMetadata:  oneWatch,
+			want:               true,
+		},
+		{
+			name:               "仅configMetadata变化_取消所有订阅_写入",
+			lastLocation:       locA,
+			newLocation:        locA,
+			lastConfigMetadata: oneWatch,
+			newConfigMetadata:  emptyWatch,
+			want:               true,
+		},
+		{
+			name:               "configMetadata从空到非空_订阅前空模板到有内容_写入",
+			lastLocation:       locA,
+			newLocation:        locA,
+			lastConfigMetadata: "",
+			newConfigMetadata:  oneWatch,
+			want:               true,
+		},
+		{
+			name:               "地域与configMetadata均变化_写入",
+			lastLocation:       locA,
+			newLocation:        locB,
+			lastConfigMetadata: emptyWatch,
+			newConfigMetadata:  oneWatch,
+			want:               true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := clientInfoNeedsPersist(tt.lastLocation, tt.newLocation,
+				tt.lastConfigMetadata, tt.newConfigMetadata)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

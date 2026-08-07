@@ -15,6 +15,8 @@
  * specific language governing permissions and limitations under the License.
  */
 
+// Package startup 提供 SDK 启动阶段的周期性任务回调，包括客户端状态上报、SDK 配置上报、
+// 服务端服务同步以及客户端事件监听（WatchClientEvents）等。
 package startup
 
 import (
@@ -77,6 +79,10 @@ type ReportClientCallBack struct {
 	logCtx        *log.ContextLogger
 	// lastLocation 记录上次成功持久化的地域信息，用于对比判断是否需要重新写入 client_info.json
 	lastLocation *model.Location
+	// lastConfigMetadata 记录上次成功持久化的配置订阅元数据（ReportClient 响应中的 config_metadata），
+	// 用于对比判断订阅列表是否变化、是否需要重新写入 client_info.json。
+	// 订阅列表变化（新增/移除配置文件监听）后即使地域不变也需刷新文件，否则 config_watch 停留在过期快照。
+	lastConfigMetadata string
 	// reportPending 标记是否已有待执行的即时上报（debounce 合并用），0=无 1=有
 	reportPending int32
 }
@@ -91,6 +97,11 @@ const (
 	// clientInfoPersistFilePrefix 地域信息持久化文件名前缀，
 	// 实际文件名追加 clientID（如 client_info_host-1234-0.json），按 context 隔离避免互相覆盖。
 	clientInfoPersistFilePrefix = "client_info"
+	// clientInfoSharedFile 固定名共享文件，跨重启复用上次地域缓存。
+	// 因为 clientID 含 PID（HostName/IP 档），每次重启 PID 变化会导致 client_info_<clientID>.json
+	// 读不到上次缓存。启动时回退读此固定文件消除冷启动阻塞；持久化时双写一份保证其新鲜。
+	// 多 context 同机地域相同，固定文件被覆盖无害；原子 temp+rename 写不会写坏文件。
+	clientInfoSharedFile = "client_info.json"
 )
 
 // clientInfoFile 返回当前 context 的持久化文件名：client_info_<clientID>.json。
@@ -105,14 +116,35 @@ func clientInfoFileName(clientID string) string {
 	return fmt.Sprintf("%s_%s.json", clientInfoPersistFilePrefix, clientID)
 }
 
-// loadLocalClientReportResult 从本地缓存加载上报结果信息
+// clientInfoLoadCandidates 返回加载地域缓存时依次尝试的文件名列表（优先级从高到低）。
+// 抽为包级函数便于单测：覆盖"按 context 隔离文件 → 固定名共享文件"的回退顺序，
+// 顺序错误会导致重启换 PID 时读不到可复用的地域缓存。
+func clientInfoLoadCandidates(clientID string) []string {
+	return []string{clientInfoFileName(clientID), clientInfoSharedFile}
+}
+
+// loadLocalClientReportResult 从本地缓存加载上报结果信息。
+// 优先读按 clientID 隔离的文件；读不到（重启换 PID、首次启动、升级）回退读固定名 client_info.json，
+// 复用上次地域信息消除冷启动就近路由阻塞。两者均读不到才记 warn（首次部署正常现象）。
 func (r *ReportClientCallBack) loadLocalClientReportResult() {
 	logBase := r.logCtx.GetBaseLogger()
 	resp := &apiservice.Response{}
-	cachedFile := r.clientInfoFile()
-	err := r.registry.LoadPersistedMessage(cachedFile, resp)
-	if err != nil {
-		logBase.Warnf("fail to load local region info from %s, err is %v", cachedFile, err)
+	// 依次尝试：client_info_<clientID>.json → client_info.json
+	candidates := clientInfoLoadCandidates(r.globalCtx.GetClientId())
+	loaded := false
+	for _, f := range candidates {
+		if err := r.registry.LoadPersistedMessage(f, resp); err != nil {
+			continue
+		}
+		loaded = true
+		if f != candidates[0] {
+			logBase.Infof("load local region info from shared %s (per-context file not found)", f)
+		}
+		break
+	}
+	if !loaded {
+		logBase.Warnf("fail to load local region info from %s or %s",
+			candidates[0], candidates[1])
 		return
 	}
 	location := resp.GetClient().GetLocation()
@@ -123,6 +155,8 @@ func (r *ReportClientCallBack) loadLocalClientReportResult() {
 	}
 	// 初始化 lastLocation，避免首次上报时与缓存相同的 location 也触发重复写入
 	r.lastLocation = loc
+	// 初始化 lastConfigMetadata，避免重启后首次上报与缓存相同的 configMetadata 也触发重复写入
+	r.lastConfigMetadata = resp.GetClient().GetConfigMetadata().GetValue()
 	r.updateLocation(loc, nil)
 }
 
@@ -156,14 +190,23 @@ func (r *ReportClientCallBack) reportClientRequest() *model.ReportClientRequest 
 	return reportClientReq
 }
 
-// persistHandlerWithLocationCheck 带地域信息变更检查的持久化处理函数
-// 只有当服务端返回的地域信息与上次持久化的不同时，才执行写入操作，避免不必要的磁盘 I/O
+// persistHandlerWithLocationCheck 带地域信息与配置订阅元数据变更检查的持久化处理函数。
+// 当服务端返回的地域信息或 config_metadata 与上次持久化的不同时（或首次写入），才执行写入操作，
+// 避免不必要的磁盘 I/O。
+// 将 config_metadata 纳入判断：订阅列表变化（新增/移除配置文件监听）后即使地域不变也需刷新文件，
+// 否则 client_info.json 中的 config_watch 会停留在首次写入的过期快照，无法反映当前订阅状态。
+// 写入时双写：client_info_<clientID>.json（按 context 隔离）+ client_info.json（固定名，
+// 供下次重启 PID 变化时回退读取）。固定文件双写失败仅记 warn，不影响主流程。
 func (r *ReportClientCallBack) persistHandlerWithLocationCheck(message proto.Message) error {
 	cachedFile := r.clientInfoFile()
 	resp, ok := message.(*apiservice.Response)
 	if !ok {
-		// 类型不匹配时直接持久化
-		return r.registry.PersistMessage(cachedFile, message)
+		// 类型不匹配时直接持久化（双写）
+		if err := r.registry.PersistMessage(cachedFile, message); err != nil {
+			return err
+		}
+		r.persistShared(message)
+		return nil
 	}
 	loc := resp.GetClient().GetLocation()
 	newLocation := &model.Location{
@@ -171,18 +214,40 @@ func (r *ReportClientCallBack) persistHandlerWithLocationCheck(message proto.Mes
 		Zone:   loc.GetZone().GetValue(),
 		Campus: loc.GetCampus().GetValue(),
 	}
-	// 对比新旧地域信息，相同则跳过写入
-	if r.lastLocation != nil && *r.lastLocation == *newLocation {
+	newConfigMetadata := resp.GetClient().GetConfigMetadata().GetValue()
+	// 地域与配置订阅元数据均未变化时跳过写入，避免不必要的磁盘 I/O
+	if !clientInfoNeedsPersist(r.lastLocation, newLocation, r.lastConfigMetadata, newConfigMetadata) {
 		return nil
 	}
-	// 地域信息发生变化或首次写入，执行持久化
+	// 地域或订阅元数据发生变化（或首次写入），执行持久化（主文件 + 共享文件）
 	if err := r.registry.PersistMessage(cachedFile, message); err != nil {
 		return err
 	}
+	r.persistShared(message)
 	r.lastLocation = newLocation
-	r.logCtx.GetBaseLogger().Infof("%s updated, location changed to {Region:%s, Zone:%s, Campus:%s}",
-		cachedFile, newLocation.Region, newLocation.Zone, newLocation.Campus)
+	r.lastConfigMetadata = newConfigMetadata
+	r.logCtx.GetBaseLogger().Infof("%s updated, location {Region:%s, Zone:%s, Campus:%s}, configMetadataLen %d",
+		cachedFile, newLocation.Region, newLocation.Zone, newLocation.Campus, len(newConfigMetadata))
 	return nil
+}
+
+// clientInfoNeedsPersist 判断本次 ReportClient 响应相比上次持久化结果是否需要重新写入 client_info.json。
+// lastLocation 为 nil 表示首次写入（本地缓存未加载到），必然需要写入。
+// location 或 configMetadata 任一变化即需写入：configMetadata 纳入判断是为了让订阅列表变化
+// （新增/移除配置文件监听）能刷新文件，避免 config_watch 停留在首次写入的过期快照。
+// 抽为包级纯函数便于单测，无需构造 ReportClientCallBack 依赖。
+func clientInfoNeedsPersist(lastLocation *model.Location, newLocation *model.Location,
+	lastConfigMetadata, newConfigMetadata string) bool {
+	locationChanged := lastLocation == nil || *lastLocation != *newLocation
+	return locationChanged || lastConfigMetadata != newConfigMetadata
+}
+
+// persistShared 写入固定名共享文件 client_info.json，供下次重启回退读取。
+// 失败仅记 warn 不影响主流程：该文件只是缓存加速，缺失最多导致下次冷启动多等一次 ReportClient。
+func (r *ReportClientCallBack) persistShared(message proto.Message) {
+	if err := r.registry.PersistMessage(clientInfoSharedFile, message); err != nil {
+		r.logCtx.GetBaseLogger().Warnf("persist shared client_info.json failed: %v", err)
+	}
 }
 
 // Process 执行任务
@@ -247,12 +312,12 @@ func (r *ReportClientCallBack) fillConfigMetadata(req *model.ReportClientRequest
 	}
 	items := r.configFlow.GetWatchedConfigFileMetadata()
 	payload := configMetadataPayload{Kind: "config", ConfigWatch: items}
-	data, err := json.Marshal(payload)
+	metadataJSON, err := json.Marshal(payload)
 	if err != nil {
 		r.logCtx.GetBaseLogger().Warnf("marshal config metadata failed: %v", err)
 		return
 	}
-	req.ConfigMetadata = string(data)
+	req.ConfigMetadata = string(metadataJSON)
 }
 
 // TriggerNow 请求触发一次即时 ReportClient 上报，不等定时周期。

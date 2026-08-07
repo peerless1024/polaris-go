@@ -42,6 +42,11 @@ const (
 	watchLogSuppressAfter = 5
 	// watchLogSuppressEvery 降频后每 N 次失败打印一条日志
 	watchLogSuppressEvery = 10
+	// watchNotFoundWarnCount 服务端 client 缓存未命中（NotFound）记 warn 的连续失败次数上限。
+	// 服务端 ReportClient 异步落库、client 缓存按秒级周期从存储增量刷新，前几次建流可能早于
+	// 刷新而拿到 NotFound，属预期内的启动竞态，退避重连即可自愈，记 warn 即可；
+	// 超过该次数仍 NotFound 说明客户端上报确有异常，升为 error 以便被排查与告警发现。
+	watchNotFoundWarnCount = 3
 	// watchMaxAckContentBytes ACK 中 content 的最大字节数。
 	// 超限则截断并置 content_truncated=true，避免超大配置触发 gRPC 消息体上限（服务端默认 4MB）
 	// 导致 ACK 永远发不出、服务端 waiter 超时。
@@ -153,59 +158,87 @@ func (w *ClientEventWatcher) runLoop() {
 			return
 		}
 		stream, err := w.connectAndWatch()
-		if err != nil {
-			// 服务端不支持该接口（旧版本服务端）时重连无意义，直接退出避免无限重试与日志刷屏
-			if isUnimplemented(err) {
-				w.warnf(
-					"watch client events unimplemented by server, watcher disabled, clientID %s: %v", w.clientID, err)
-				return
+		failed := err
+		if failed == nil {
+			// 建流与首帧发送成功——但 gRPC 双向流是惰性的，Unimplemented 等服务端错误
+			// 往往要等到第一次 Recv 才暴露，故仍需进入 recvLoop 探测。
+			// 进入 recvLoop 即说明建流阶段已通过，重置连续失败计数（之前的失败已过去）。
+			w.failCount = 0
+			w.retryDelay = watchInitialRetryDelay
+			recvErr := w.recvLoop(stream)
+			if cerr := stream.Close(); cerr != nil {
+				w.warnf("watch client events stream close error: %v", cerr)
 			}
-			w.failCount++
-			w.logConnectFailure(err)
-			if !w.backoffSleep() {
-				return
-			}
-			continue
-		}
-		// 建连成功，重置退避与失败计数
-		w.retryDelay = watchInitialRetryDelay
-		w.failCount = 0
-		recvErr := w.recvLoop(stream)
-		// 无论正常/异常都关闭流
-		if cerr := stream.Close(); cerr != nil {
-			w.warnf("watch client events stream close error: %v", cerr)
+			failed = recvErr
 		}
 		if w.isClosed() {
 			return
 		}
-		if recvErr != nil {
+		if failed != nil {
+			// 服务端不支持该接口（旧版本服务端）时重连无意义，直接退出避免无限重试与日志刷屏。
+			// Unimplemented 可能从 connectAndWatch 或 recvLoop 任一路径返回，统一在此判断。
+			if isUnimplemented(failed) {
+				w.warnf(
+					"watch client events unimplemented by server, watcher disabled, clientID %s: %v",
+					w.clientID, failed)
+				return
+			}
 			w.failCount++
-			w.logConnectFailure(recvErr)
+			w.logConnectFailure(failed)
 			if !w.backoffSleep() {
 				return
 			}
 			continue
 		}
+		// recvLoop 正常退出（收到关闭信号），由 isClosed 分支处理
 	}
 }
 
 // logConnectFailure 记录建流/接收失败，连续失败超过阈值后降频，避免服务端长期不可用时刷满日志。
+// 日志级别：服务端 client 缓存未命中（NotFound）的前 watchNotFoundWarnCount 次记 warn——
+// 该场景是启动期缓存刷新竞态，退避重连即可自愈；超出该次数或其余错误一律记 error。
 func (w *ClientEventWatcher) logConnectFailure(err error) {
 	if w.failCount > watchLogSuppressAfter && w.failCount%watchLogSuppressEvery != 0 {
 		return
 	}
-	w.warnf(
-		"watch client events failed (consecutive %d), retry after %v, clientID %s: %v",
-		w.failCount, w.retryDelay, w.clientID, err)
+	msg := "watch client events failed (consecutive %d), retry after %v, clientID %s: %v"
+	if shouldLogFailureAsWarn(w.failCount, err) {
+		w.warnf(msg, w.failCount, w.retryDelay, w.clientID, err)
+		return
+	}
+	w.errorf(msg, w.failCount, w.retryDelay, w.clientID, err)
+}
+
+// shouldLogFailureAsWarn 判断本次建流失败记 warn（true）还是 error（false）。
+// failCount 为当前连续失败次数（从 1 开始计）；err 为本次失败原因。
+// 仅服务端 client 缓存未命中且处于前 watchNotFoundWarnCount 次时返回 true——该场景可自愈。
+// 其余错误（含超出次数的 NotFound）返回 false，以 error 暴露真实故障。
+// 抽为包级纯函数便于单测，无需注入可捕获级别的 logger。
+func shouldLogFailureAsWarn(failCount int, err error) bool {
+	return failCount <= watchNotFoundWarnCount && isClientNotFound(err)
 }
 
 // isUnimplemented 判断错误是否为 gRPC Unimplemented（服务端未实现该接口）。
-// 服务端错误可能被 SDK 包装，故同时检查 errors 链上的 gRPC status。
 func isUnimplemented(err error) bool {
+	return hasGRPCCode(err, codes.Unimplemented)
+}
+
+// isClientNotFound 判断错误是否为服务端 client 缓存未命中（gRPC NotFound）。
+// 服务端 ReportClient 异步落库、client 缓存按秒级周期从存储增量刷新，故 SDK 启动初期
+// 建流可能早于缓存刷新而拿到该错误。这是预期内的启动竞态，退避重连后即可绑定成功，
+// 不代表客户端或服务端故障。
+func isClientNotFound(err error) bool {
+	return hasGRPCCode(err, codes.NotFound)
+}
+
+// hasGRPCCode 判断错误是否携带指定的 gRPC status code。
+// 服务端错误可能被 SDK 包装，故先直接判断，再逐层解包 errors 链后重试判断。
+// err 为 nil 时返回 false。
+func hasGRPCCode(err error, code codes.Code) bool {
 	if err == nil {
 		return false
 	}
-	if st, ok := status.FromError(err); ok && st.Code() == codes.Unimplemented {
+	if st, ok := status.FromError(err); ok && st.Code() == code {
 		return true
 	}
 	// SDK 包装后的错误：逐层解包再判断
@@ -215,7 +248,7 @@ func isUnimplemented(err error) bool {
 			break
 		}
 		inner = unwrapped.Unwrap()
-		if st, ok := status.FromError(inner); ok && st.Code() == codes.Unimplemented {
+		if st, ok := status.FromError(inner); ok && st.Code() == code {
 			return true
 		}
 	}
