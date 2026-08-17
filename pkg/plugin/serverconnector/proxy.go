@@ -66,6 +66,11 @@ func (p *Proxy) ReportClient(req *model.ReportClientRequest) (*model.ReportClien
 	return result, err
 }
 
+// WatchClientEvents proxy ServerConnector WatchClientEvents
+func (p *Proxy) WatchClientEvents() (ClientEventStream, error) {
+	return p.ServerConnector.WatchClientEvents()
+}
+
 // UpdateServers proxy ServerConnector UpdateServers
 func (p *Proxy) UpdateServers(key *model.ServiceEventKey) error {
 	err := p.ServerConnector.UpdateServers(key)

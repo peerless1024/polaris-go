@@ -1,0 +1,3 @@
+# dist/ 为 build-materials.sh 现场生成的部署物料
+# (交叉编译 x86-bin + 打包 zip + 拷贝 templates),不入库
+dist/

@@ -31,6 +31,7 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/flow/quota"
 	"github.com/polarismesh/polaris-go/pkg/flow/registerstate"
 	"github.com/polarismesh/polaris-go/pkg/flow/schedule"
+	"github.com/polarismesh/polaris-go/pkg/flow/startup"
 	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/model/pb"
@@ -93,6 +94,8 @@ type Engine struct {
 	registerStates *registerstate.RegisterStateManager
 	// watchEngine .
 	watchEngine *WatchEngine
+	// clientEventWatcher WatchClientEvents 长连接监听器，接收服务端配置生效查询
+	clientEventWatcher *startup.ClientEventWatcher
 	// 配置过滤链
 	configFilterChain configfilter.Chain
 	logCtx            *log.ContextLogger
@@ -102,6 +105,14 @@ type Engine struct {
 	authenticators []authenticator.Authenticator
 	// 本端已注册实例的 metadata 表，用于鉴权 CALLEE_METADATA 取值
 	localMetadata *localMetadataStore
+}
+
+// getConfigFileFlow 返回配置文件流，配置中心未启用时返回 nil。
+func (e *Engine) getConfigFileFlow() *configuration.ConfigFileFlow {
+	if e.configFlow == nil {
+		return nil
+	}
+	return e.configFlow.ConfigFileFlow
 }
 
 // InitFlowEngine 初始化flowEngine实例
@@ -466,6 +477,8 @@ func (e *Engine) Start() error {
 	schedule.StartTask(
 		taskConfigReport, configReportTaskValues, map[interface{}]model.TaskValue{
 			taskConfigReport: &data.AllEqualsComparable{}}, e.logCtx)
+	// 启动 WatchClientEvents 长连接监听服务端配置生效查询（非致命，失败不影响核心功能）
+	e.addClientEventWatcher()
 	return nil
 }
 
@@ -500,6 +513,10 @@ func (e *Engine) getLoadBalancer(svcInstances model.ServiceInstances, chooseAlgo
 
 // Destroy 销毁流程引擎
 func (e *Engine) Destroy() error {
+	// 先关闭 WatchClientEvents 长连接，避免 watcher 在 configFlow 销毁后访问
+	if e.clientEventWatcher != nil {
+		e.clientEventWatcher.Close()
+	}
 	if len(e.taskRoutines) > 0 {
 		for _, routine := range e.taskRoutines {
 			routine.Destroy()

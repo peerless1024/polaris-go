@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,9 @@ type ConfigFileFlow struct {
 	startLongPollingTaskOnce sync.Once
 
 	eventReporterChain []events.EventReporter
+
+	// onWatchChanged 配置文件监听列表变化时的回调，由 Engine 注入用于触发即时 ReportClient
+	onWatchChanged func()
 }
 
 // NewConfigFileFlow 创建配置中心服务
@@ -153,6 +157,14 @@ func (c *ConfigFileFlow) GetConfigFile(req *model.GetConfigFileRequest) (model.C
 		c.configFileCache.Store(cacheKey, configFile)
 		c.logCtx.GetBaseLogger().Infof("[ConfigFileFlow] 配置文件已订阅并加入长轮询池. file=%s/%s/%s, version=%d",
 			req.Namespace, req.FileGroup, req.FileName, fileRepo.getVersion())
+		// 通知监听列表变化以触发即时 ReportClient 上报。
+		// 回调（TriggerNow）本身非阻塞（CAS + 内部起协程），直接同步调用即可，无需再包一层 go。
+		c.fclock.RLock()
+		onWatchChanged := c.onWatchChanged
+		c.fclock.RUnlock()
+		if onWatchChanged != nil {
+			onWatchChanged()
+		}
 	}
 	return configFile, nil
 }
@@ -454,6 +466,136 @@ func (c *ConfigFileFlow) assembleWatchConfigFiles() []*configconnector.ConfigFil
 	}
 
 	return watchConfigFiles
+}
+
+// ConfigFileMetadataItem 配置文件元数据项，对应 ReportClient 上报 config_metadata 中
+// config_watch 数组的单个元素，字段采用 snake_case JSON 命名与服务端配置中心三级树一致。
+type ConfigFileMetadataItem struct {
+	Namespace string `json:"namespace"`
+	Group     string `json:"group"`
+	FileName  string `json:"file_name"`
+	Version   uint64 `json:"version"`
+	Md5       string `json:"md5"`
+}
+
+// GetWatchedConfigFileMetadata 返回当前监听的配置文件元数据列表快照，供 ReportClient 上报 config_metadata。
+// 内部持有 fclock 读锁遍历 configFilePool，调用期间配置文件列表不会被并发修改；
+// 返回值始终非 nil（池为空时返回空切片），调用方可直接序列化为 JSON。
+// receiver 为 nil 时（配置中心未启用，指针被装入接口）返回空切片，避免解引用 panic。
+// 返回前按 (namespace, group, file_name) 排序：configFilePool 是 map，遍历序随机，若不排序，
+// 每次序列化出的 config_metadata 字符串顺序都不同，会把「同一份监听列表」误判为「订阅变化」，
+// 导致 client_info.json 每个上报周期都被重写一遍（多余的磁盘 I/O 与日志）；排序后字符串稳定，
+// 变化检测才真实反映监听集合的增删。
+func (c *ConfigFileFlow) GetWatchedConfigFileMetadata() []ConfigFileMetadataItem {
+	if c == nil {
+		return []ConfigFileMetadataItem{}
+	}
+	c.fclock.RLock()
+	defer c.fclock.RUnlock()
+	items := make([]ConfigFileMetadataItem, 0, len(c.configFilePool))
+	for cacheKey, repo := range c.configFilePool {
+		metadata := repo.configFileMetadata
+		item := ConfigFileMetadataItem{
+			Namespace: metadata.GetNamespace(),
+			Group:     metadata.GetFileGroup(),
+			FileName:  metadata.GetFileName(),
+		}
+		// version 与 md5 统一取自同一次 loadRemoteFile 快照（即本地实际生效的配置），保证自一致——
+		// 若 version 取 notifiedVersion 而 md5 取 remoteConfigFileRef，长轮询并发更新瞬间会拼出
+		// "version 旧、md5 新" 的撕裂组合。尚未拉取到文件时 version 回退 notifiedVersion、md5 留空。
+		if cf := repo.loadRemoteFile(); cf != nil {
+			item.Version = cf.GetVersion()
+			item.Md5 = cf.GetMd5()
+		} else {
+			item.Version = c.getConfigFileNotifiedVersion(cacheKey, false)
+		}
+		items = append(items, item)
+	}
+	// 排序保证序列化结果确定，与监听集合的内容一一对应（与遍历顺序无关）
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Namespace != items[j].Namespace {
+			return items[i].Namespace < items[j].Namespace
+		}
+		if items[i].Group != items[j].Group {
+			return items[i].Group < items[j].Group
+		}
+		return items[i].FileName < items[j].FileName
+	})
+	return items
+}
+
+// ConfigFileContentItem 配置文件元数据 + 内容，供配置生效查询 ACK 应答使用。
+// 相比 ConfigFileMetadataItem 多 Content 字段，仅在单点查询命中时返回，
+// 不进入 ReportClient 的全量 config_metadata 上报（避免 config_metadata 携带大体积内容膨胀）。
+type ConfigFileContentItem struct {
+	Namespace string `json:"namespace"`
+	Group     string `json:"group"`
+	FileName  string `json:"file_name"`
+	Version   uint64 `json:"version"`
+	Md5       string `json:"md5"`
+	// Content 为配置文件的源内容（SourceContent）：非加密配置即应用生效内容；加密配置为密文。
+	// 取源内容而非 GetContent() 的原因有二：
+	//  1. Md5 是服务端对源内容的摘要，回传源内容才能保证 md5(content) 自洽，可供服务端校验；
+	//  2. 加密配置的 GetContent() 是解密后的明文，回传明文会把本仓库刻意保护的敏感内容（配置
+	//     变更日志已对加密 tag 打码）经 ACK 明文回传，扩大暴露面。密文回传不泄露明文，且服务端
+	//     作为配置来源本就可据此校验版本与摘要。
+	Content string `json:"content"`
+	// EffectiveTime 配置在客户端本地的实际生效时刻（int64 毫秒时间戳），
+	// 取自 ConfigFileRepo 在 fireChangeEvent 时记录的 time.Now().UnixMilli()。
+	// 未拉取到远端文件时为零值（omitempty 省略）。
+	EffectiveTime int64 `json:"effective_time,omitempty"`
+	// Pulled 标记是否已拉取到远端文件（仅内部使用，不进入 ACK JSON）。
+	// 已订阅但尚未拉取成功（首次拉取失败/重试中）时为 false，供调用方区分「未生效」与「已生效」。
+	Pulled bool `json:"-"`
+}
+
+// GetWatchedConfigFileContent 按 (namespace, group, fileName) 查询单个监听配置文件的元数据与内容。
+// 未监听返回 (zero, false)；已监听但尚未拉取到远端文件返回 (item, true) 且 item.Pulled=false；
+// 已拉取返回 (item, true) 且 item.Pulled=true，version/md5/content/effectiveTime 齐全。
+// version/md5/content 三者统一取自同一次 loadRemoteFile 快照，保证自一致——
+// 若分别从 notifiedVersion 与 remoteConfigFileRef 取，长轮询并发更新时会返回
+// "version 旧、content 新" 的撕裂组合，导致服务端误判配置是否生效。
+// content 取 SourceContent（加密配置为密文），与 md5 自洽且不回传解密明文，详见字段注释。
+// 内部持有 fclock 读锁，并发安全；receiver 为 nil 时返回 (zero, false) 避免解引用 panic。
+func (c *ConfigFileFlow) GetWatchedConfigFileContent(namespace, fileGroup, fileName string) (ConfigFileContentItem, bool) {
+	if c == nil {
+		return ConfigFileContentItem{}, false
+	}
+	cacheKey := genCacheKey(namespace, fileGroup, fileName)
+	c.fclock.RLock()
+	defer c.fclock.RUnlock()
+	repo, ok := c.configFilePool[cacheKey]
+	if !ok || repo == nil {
+		return ConfigFileContentItem{}, false
+	}
+	item := ConfigFileContentItem{
+		Namespace: namespace,
+		Group:     fileGroup,
+		FileName:  fileName,
+	}
+	// 单次快照取值，保证 version/md5/content 自一致
+	cf := repo.loadRemoteFile()
+	if cf == nil {
+		// 已订阅但尚未拉取到远端文件（首次拉取失败/重试中）：仅回退 notifiedVersion，
+		// Pulled=false 供调用方按「未生效」处理
+		item.Version = c.getConfigFileNotifiedVersion(cacheKey, false)
+		return item, true
+	}
+	item.Version = cf.GetVersion()
+	item.Md5 = cf.GetMd5()
+	item.Content = cf.GetSourceContent()
+	item.EffectiveTime = repo.getEffectiveTime()
+	item.Pulled = true
+	return item, true
+}
+
+// SetWatchChangedCallback 注入配置文件监听列表变化时的回调。
+// 由 Engine 在创建 ReportClientCallBack 后注入，cb 通常为 callback.TriggerNow；
+// cb 为 nil 时清除回调。回调在新配置 Subscribe 时被异步调用。
+func (c *ConfigFileFlow) SetWatchChangedCallback(cb func()) {
+	c.fclock.Lock()
+	defer c.fclock.Unlock()
+	c.onWatchChanged = cb
 }
 
 func (c *ConfigFileFlow) updateNotifiedVersion(cacheKey string, version uint64) {

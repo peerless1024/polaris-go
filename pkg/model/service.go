@@ -1420,6 +1420,11 @@ type ReportClientRequest struct {
 	StatInfos []StatInfo
 	// 持久化回调
 	PersistHandler func(message proto.Message) error
+	// 是否启用配置中心功能，供服务端判断该客户端是否参与配置生效查询
+	ConfigEnabled bool
+	// 配置元数据，JSON 格式字符串，承载当前监听的配置文件列表
+	// 结构见方案「配置监听信息结构」节：{kind, config_watch:[{namespace,group,file_name,version,md5}]}
+	ConfigMetadata string
 }
 
 // Validate 校验ReportClientRequest

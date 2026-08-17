@@ -111,6 +111,11 @@ func ReportClientRequestToProto(request *model.ReportClientRequest) (pbInstance 
 		},
 		Stat: statInfoToProto(request.StatInfos),
 	}
+	// 配置中心启用状态与监听文件列表元数据
+	pbInstance.ConfigEnabled = &wrappers.BoolValue{Value: request.ConfigEnabled}
+	if request.ConfigMetadata != "" {
+		pbInstance.ConfigMetadata = &wrappers.StringValue{Value: request.ConfigMetadata}
+	}
 	return pbInstance
 }
 

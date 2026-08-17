@@ -526,6 +526,20 @@ func (n *namingServer) RegisterAssistant(req *service_manage.DiscoverRequest) {
 	}
 }
 
+// WatchClientEvents 客户端事件监听双向流（占位实现）
+// 阶段0仅保证接口满足：循环接收客户端上行（WATCH 首帧 / ACK），不主动 PUSH。
+// 阶段2完善为支持 PUSH/ACK 的测试 mock（按 clientID 绑定 stream、提供 PushClientEvent 辅助方法）。
+func (n *namingServer) WatchClientEvents(server service_manage.PolarisGRPC_WatchClientEventsServer) error {
+	for {
+		if _, err := server.Recv(); err != nil {
+			if io.EOF == err {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
 // Discover 服务实例发现
 func (n *namingServer) Discover(server service_manage.PolarisGRPC_DiscoverServer) error {
 	//
