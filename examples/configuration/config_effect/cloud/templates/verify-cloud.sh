@@ -34,6 +34,12 @@ FILE_GROUP="${FILE_GROUP:-polaris-config-example}"
 FILE_NAME="${FILE_NAME:-config-effect-example}"
 WAIT_WATCHER_SEC="${WAIT_WATCHER_SEC:-5}"
 
+# PUSH 重试: 服务端「查询 → 定位客户端 → 经 WatchClientEvents 下发 → 等 ACK」投递链路存在
+# 收敛延迟(客户端注册/节点缓存同步)，且每轮查询的首个事件易被冷路径丢弃(响应有 client 但无 clientEvent)。
+# 响应无 clientEvent.content 时按此次数/间隔重试。
+PUSH_RETRY_MAX="${PUSH_RETRY_MAX:-4}"
+PUSH_RETRY_INTERVAL="${PUSH_RETRY_INTERVAL:-3}"
+
 # 加密配置: 第 ENCRYPT_FILE_INDEX 个派生文件由 client.sh setup 创建为加密配置，
 # 其 ACK 应携带 encrypted/encrypt_algo/data_key；本脚本解密其密文 content 并与客户端生效明文比对。
 ENCRYPT_FILE_INDEX="${ENCRYPT_FILE_INDEX:-1}"
@@ -264,14 +270,16 @@ for fname in "${FILE_NAMES[@]}"; do
     cm=$(get_file_field "$fname" "md5")
     cc=$(get_file_field "$fname" "content")
 
-    if ! do_push "$fname"; then
-        log_error "❌ [文件 ${fname}] PUSH 失败"
-        OVERALL_PASS=false
-        continue
-    fi
-
-    # 解析 ACK content 字段(服务端响应 resp.clientEvent.content)
-    ACK_JSON=$(echo "$RESP" | python3 -c "
+    # 无 clientEvent.content 时重试: 服务端投递链路收敛延迟/首事件冷路径丢弃可通过重试恢复
+    ACK_JSON=""
+    PUSH_OK=false
+    for ((attempt=1; attempt<=PUSH_RETRY_MAX; attempt++)); do
+        if ! do_push "$fname"; then
+            break
+        fi
+        PUSH_OK=true
+        # 解析 ACK content 字段(服务端响应 resp.clientEvent.content)
+        ACK_JSON=$(echo "$RESP" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -280,13 +288,20 @@ try:
 except Exception as e:
     sys.stderr.write(str(e) + '\n')
     sys.exit(1)
-" 2>/dev/null) || {
-        log_error "❌ [文件 ${fname}] 解析服务端响应失败"
+" 2>/dev/null) || { ACK_JSON=""; break; }
+        [[ -n "$ACK_JSON" ]] && break
+        if [[ $attempt -lt $PUSH_RETRY_MAX ]]; then
+            log_warn "服务端响应无 clientEvent.content (第 ${attempt}/${PUSH_RETRY_MAX} 次)，${PUSH_RETRY_INTERVAL}s 后重试..."
+            sleep "$PUSH_RETRY_INTERVAL"
+        fi
+    done
+    if [[ "$PUSH_OK" != "true" ]]; then
+        log_error "❌ [文件 ${fname}] PUSH 失败"
         OVERALL_PASS=false
         continue
-    }
+    fi
     if [[ -z "$ACK_JSON" ]]; then
-        log_error "❌ [文件 ${fname}] 服务端响应无 clientEvent.content"
+        log_error "❌ [文件 ${fname}] 服务端响应无 clientEvent.content (重试 ${PUSH_RETRY_MAX} 次后仍无)"
         log_error "  排查: 查客户端 client.log 是否有 'stream established' 日志"
         OVERALL_PASS=false
         continue

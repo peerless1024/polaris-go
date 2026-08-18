@@ -8,6 +8,7 @@
 #     polaris.yaml      配置模板(${POLARIS_SERVER}/${POLARIS_TOKEN} 占位)
 #     client.sh         节点启动脚本(setup/start/stop/status/restart)
 #     verify-cloud.sh   配置生效查询验证脚本(调服务端 maintain 接口)
+#     pack-logs.sh      节点日志打包脚本(生成 client-logs-<时间戳>.zip)
 #     clean.sh          节点清理脚本
 #
 # 使用方法:
@@ -58,10 +59,12 @@ cp "$TMP_BIN" "${DIST_DIR}/${NODE_NAME}/x86-bin"
 cp "${TEMPLATES_DIR}/polaris.yaml" "${DIST_DIR}/${NODE_NAME}/polaris.yaml"
 cp "${TEMPLATES_DIR}/client.sh" "${DIST_DIR}/${NODE_NAME}/client.sh"
 cp "${TEMPLATES_DIR}/verify-cloud.sh" "${DIST_DIR}/${NODE_NAME}/verify-cloud.sh"
+cp "${TEMPLATES_DIR}/pack-logs.sh" "${DIST_DIR}/${NODE_NAME}/pack-logs.sh"
 cp "${TEMPLATES_DIR}/clean.sh" "${DIST_DIR}/${NODE_NAME}/clean.sh"
 chmod +x "${DIST_DIR}/${NODE_NAME}/x86-bin" \
     "${DIST_DIR}/${NODE_NAME}/client.sh" \
     "${DIST_DIR}/${NODE_NAME}/verify-cloud.sh" \
+    "${DIST_DIR}/${NODE_NAME}/pack-logs.sh" \
     "${DIST_DIR}/${NODE_NAME}/clean.sh"
 rm -f "$TMP_BIN"
 
@@ -112,7 +115,10 @@ zip 包:   ${DIST_DIR}/${NODE_NAME}.zip
   POLARIS_TOKEN=xxx ./verify-cloud.sh --polaris-server <服务端地址> \\
       --maintain-port 8090 --client-port 18091
 
-  # 5. 停止与清理
+  # 5. 打包节点日志传回本地(可选，需在 clean.sh 之前执行)
+  ./pack-logs.sh
+
+  # 6. 停止与清理
   ./client.sh stop
   ./clean.sh -f
 

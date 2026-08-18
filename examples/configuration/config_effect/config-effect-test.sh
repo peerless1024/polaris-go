@@ -25,6 +25,7 @@
 #   - 脚本读取客户端 /clientid 与 /config，获得 clientID 与本地生效配置 version/md5
 #   - 脚本调服务端 maintain 接口向该 clientID PUSH 查询 {kind:config, config:{ns,group,file}}
 #   - 服务端通过 stream 下发 PUSH，客户端回 ACK，服务端把 ACK.clientEvent.content 透传回脚本
+#     (服务端投递链路有收敛延迟/首事件冷路径丢弃，无 clientEvent 时脚本自动重试)
 #   - 脚本解析 ACK content，断言 applied=true 且 version/md5 与客户端 /config 一致
 #   - 加密配置的 ACK 额外携带 encrypted/encrypt_algo/data_key，脚本用 data_key 解密
 #     密文 content（AES-CBC，IV=key[:16]），断言解密结果等于明文基线
@@ -55,6 +56,12 @@ ENCRYPT_ALGO="${ENCRYPT_ALGO:-AES}"
 # 服务端返回码：ExecuteSuccess / ExistedResource(已存在则转 PUT 更新)
 CODE_EXECUTE_SUCCESS=200000
 CODE_EXISTED_RESOURCE=400201
+
+# PUSH 重试: 服务端「查询 → 定位客户端 → 经 WatchClientEvents 下发 → 等 ACK」投递链路存在
+# 收敛延迟(客户端注册/节点缓存同步)，且每轮查询的首个事件易被冷路径丢弃(响应有 client 但无 clientEvent)。
+# 响应无 clientEvent.content 时按此次数/间隔重试。
+PUSH_RETRY_MAX="${PUSH_RETRY_MAX:-4}"
+PUSH_RETRY_INTERVAL="${PUSH_RETRY_INTERVAL:-3}"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -349,6 +356,22 @@ query_config_effect() {
     echo "$resp"
 }
 
+# resp_has_client_event 判断服务端响应是否含非空 clientEvent.content（含则返回 0）。
+# 用于 PUSH 重试判定：服务端投递链路未就绪时响应只有 client 字段、无 clientEvent。
+resp_has_client_event() {
+    local resp="$1"
+    [[ -n "$resp" ]] || return 1
+    echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    ce = d.get('clientEvent') or {}
+    sys.exit(0 if ce.get('content') else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null
+}
+
 # extract_ack_field 从服务端响应中提取 clientEvent.content 内的指定字段。
 # 服务端响应结构：{ code, info, clientEvent: { client_id, index, content } }
 # content 是 JSON 字符串，内含 { kind, config, version, md5, applied }
@@ -576,8 +599,19 @@ main() {
         client_version=$(get_file_field "$fname" "version")
         client_md5=$(get_file_field "$fname" "md5")
 
-        local resp
-        resp=$(query_config_effect "$client_id" "$fname")
+        # 无 clientEvent.content 时重试: 服务端投递链路收敛延迟/首事件冷路径丢弃可通过重试恢复
+        local resp attempt
+        resp=""
+        for ((attempt=1; attempt<=PUSH_RETRY_MAX; attempt++)); do
+            resp=$(query_config_effect "$client_id" "$fname")
+            if resp_has_client_event "$resp"; then
+                break
+            fi
+            if [[ $attempt -lt $PUSH_RETRY_MAX ]]; then
+                log_warn "服务端响应无 clientEvent.content (第 ${attempt}/${PUSH_RETRY_MAX} 次)，${PUSH_RETRY_INTERVAL}s 后重试..."
+                sleep "$PUSH_RETRY_INTERVAL"
+            fi
+        done
         log_info "服务端响应: ${resp}"
         # 留存加密文件的原始响应，供用例 4 校验加密元信息与解密
         [[ "$fname" == "$enc_file" ]] && enc_resp="$resp"
