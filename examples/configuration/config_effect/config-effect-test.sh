@@ -26,6 +26,8 @@
 #   - 脚本调服务端 maintain 接口向该 clientID PUSH 查询 {kind:config, config:{ns,group,file}}
 #   - 服务端通过 stream 下发 PUSH，客户端回 ACK，服务端把 ACK.clientEvent.content 透传回脚本
 #   - 脚本解析 ACK content，断言 applied=true 且 version/md5 与客户端 /config 一致
+#   - 加密配置的 ACK 额外携带 encrypted/encrypt_algo/data_key，脚本用 data_key 解密
+#     密文 content（AES-CBC，IV=key[:16]），断言解密结果等于明文基线
 # =============================================================================
 
 set -euo pipefail
@@ -391,6 +393,26 @@ record_result() {
     echo "$(date '+%Y-%m-%d %H:%M:%S'),$1,$2,$3,$4" >> "$RESULT_FILE"
 }
 
+# decrypt_ack_content 用 ACK 回带的 data_key 解密 ACK 回带的密文 content。
+# 与 SDK crypto/aes 实现对齐（plugin/configfilter/crypto/aes）：
+# 密文 = base64(AES-CBC-PKCS7(明文, key))，IV 取 key[:16]。
+# 入参: cipher_b64 key_b64（均为 base64 字符串）；stdout 输出解密后的明文，失败返回非 0。
+decrypt_ack_content() {
+    local cipher_b64="$1" key_b64="$2"
+    local key_hex key_len cipher
+    key_hex=$(echo "$key_b64" | base64 -d 2>/dev/null | od -A n -t x1 | tr -d ' \n')
+    [[ -n "$key_hex" ]] || return 1
+    key_len=$(( ${#key_hex} / 2 ))
+    case "$key_len" in
+        16) cipher="aes-128-cbc" ;;
+        24) cipher="aes-192-cbc" ;;
+        32) cipher="aes-256-cbc" ;;
+        *)  return 1 ;;
+    esac
+    echo "$cipher_b64" | base64 -d 2>/dev/null | \
+        openssl enc -d "-${cipher}" -K "$key_hex" -iv "${key_hex:0:32}" 2>/dev/null
+}
+
 # ======================== 主流程 ========================
 main() {
     setup_test_log "$@"
@@ -419,6 +441,10 @@ main() {
     fi
     if ! command -v python3 &> /dev/null; then
         log_error "python3 未安装，脚本依赖 python3 解析 JSON"
+        exit 1
+    fi
+    if ! command -v openssl &> /dev/null; then
+        log_error "openssl 未安装，用例 4 依赖 openssl 解密 ACK 密文"
         exit 1
     fi
     log_info "Go 版本: $(go version)"
@@ -541,6 +567,7 @@ main() {
 
     # overall_pass 已在步骤 4 开头声明，此处直接沿用
     local case_idx=0
+    local enc_resp=""
     for fname in "${file_names[@]}"; do
         case_idx=$((case_idx + 1))
         log_step "  文件 ${case_idx}/${#file_names[@]}: ${fname}"
@@ -552,6 +579,8 @@ main() {
         local resp
         resp=$(query_config_effect "$client_id" "$fname")
         log_info "服务端响应: ${resp}"
+        # 留存加密文件的原始响应，供用例 4 校验加密元信息与解密
+        [[ "$fname" == "$enc_file" ]] && enc_resp="$resp"
 
         local ack_applied ack_version ack_md5
         ack_applied=$(extract_ack_field "$resp" "applied") || {
@@ -592,6 +621,47 @@ main() {
             overall_pass=false
         fi
     done
+
+    # ==================== 用例 4：加密配置 ACK 携带加密算法与数据密钥，接收方可解密密文 ====================
+    log_step "用例 4 加密配置 ACK 解密信息校验 (${enc_file})"
+    if [[ -z "$enc_resp" ]]; then
+        log_error "❌ [用例 4 ACK 加密元信息] FAIL - 未采集到加密文件 ${enc_file} 的服务端响应"
+        record_result "4" "ACK 加密元信息 ${enc_file}" "FAIL" "no response captured"
+        overall_pass=false
+    else
+        local ack_encrypted ack_algo ack_datakey ack_cipher ack_plain=""
+        ack_encrypted=$(extract_ack_field "$enc_resp" "encrypted") || true
+        ack_algo=$(extract_ack_field "$enc_resp" "encrypt_algo") || true
+        ack_datakey=$(extract_ack_field "$enc_resp" "data_key") || true
+        ack_cipher=$(extract_ack_field "$enc_resp" "content") || true
+
+        # 校验 4.1：encrypted=true 且 encrypt_algo 与创建时一致、data_key 非空
+        if [[ "$ack_encrypted" == "True" && "$ack_algo" == "$ENCRYPT_ALGO" && -n "$ack_datakey" ]]; then
+            log_info "✅ [用例 4.1 ACK 携带加密元信息] PASS - ${enc_file} encrypted=${ack_encrypted}, algo=${ack_algo}, data_key 非空"
+            record_result "4.1" "ACK 加密元信息 ${enc_file}" "PASS" "algo=${ack_algo}"
+        else
+            log_error "❌ [用例 4.1 ACK 携带加密元信息] FAIL - ${enc_file} encrypted=${ack_encrypted}, algo=${ack_algo} (期望 ${ENCRYPT_ALGO}), data_key 长度=${#ack_datakey}"
+            record_result "4.1" "ACK 加密元信息 ${enc_file}" "FAIL" "encrypted=${ack_encrypted},algo=${ack_algo},keylen=${#ack_datakey}"
+            overall_pass=false
+        fi
+
+        # 校验 4.2：用 ACK 回带的 data_key 解密密文 content，应得到明文基线
+        if [[ -n "$ack_datakey" && -n "$ack_cipher" ]]; then
+            ack_plain=$(decrypt_ack_content "$ack_cipher" "$ack_datakey") || true
+            if [[ -n "$ack_plain" && "$ack_plain" == "$enc_expect" ]]; then
+                log_info "✅ [用例 4.2 接收方解密一致] PASS - ${enc_file} 解密后=${ack_plain}"
+                record_result "4.2" "接收方解密一致 ${enc_file}" "PASS" "decrypted=${ack_plain}"
+            else
+                log_error "❌ [用例 4.2 接收方解密一致] FAIL - ${enc_file} 解密后=${ack_plain} != 期望明文=${enc_expect}"
+                record_result "4.2" "接收方解密一致 ${enc_file}" "FAIL" "decrypted=${ack_plain},expect=${enc_expect}"
+                overall_pass=false
+            fi
+        else
+            log_error "❌ [用例 4.2 接收方解密一致] FAIL - ${enc_file} data_key 或密文 content 为空，无法解密"
+            record_result "4.2" "接收方解密一致 ${enc_file}" "FAIL" "datakey_len=${#ack_datakey},cipher_len=${#ack_cipher}"
+            overall_pass=false
+        fi
+    fi
 
     # ==================== 结果汇总 ====================
     echo ""

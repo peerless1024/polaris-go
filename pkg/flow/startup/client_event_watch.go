@@ -364,10 +364,10 @@ func (w *ClientEventWatcher) handlePush(stream serverconnector.ClientEventStream
 	// 直接使用已构造的 ack 结构体字段打日志，无需把 ackContent 再反序列化一遍。
 	if l := w.logger(); l != nil {
 		l.Infof("client event ack sent, index %d, clientID %s, namespace %s, group %s, "+
-			"file %s, version %d, md5 %s, applied %v, reason %s, ackBytes %d",
+			"file %s, version %d, md5 %s, applied %v, encrypted %v, reason %s, ackBytes %d",
 			event.GetIndex(), w.clientID,
 			ack.Config.Namespace, ack.Config.Group, ack.Config.FileName,
-			ack.Version, ack.Md5, ack.Applied, ack.Reason, len(ackContent))
+			ack.Version, ack.Md5, ack.Applied, ack.Encrypted, ack.Reason, len(ackContent))
 	}
 	return nil
 }
@@ -417,6 +417,10 @@ func (w *ClientEventWatcher) buildAck(pushContent string) clientEventAck {
 	ack.Md5 = item.Md5
 	ack.EffectiveTime = item.EffectiveTime
 	ack.Applied = true
+	// 加密配置透传算法与数据密钥，供接收方解密密文 content；均取自同一次快照，与 version/md5 自一致
+	ack.Encrypted = item.Encrypted
+	ack.EncryptAlgo = item.EncryptAlgo
+	ack.DataKey = item.DataKey
 	// 超大配置截断：gRPC 服务端默认消息体上限 4MB，超限会导致 ACK 发送失败、服务端 waiter 超时。
 	// md5 仍为完整内容的摘要，服务端可据此校验并按需另行拉取全量内容。
 	if len(item.Content) > watchMaxAckContentBytes {
@@ -511,8 +515,16 @@ type clientEventAck struct {
 	// ContentTruncated 标记 Content 是否因超过上限被截断；为 true 时 ContentLength 给出原始长度
 	ContentTruncated bool `json:"content_truncated,omitempty"`
 	// ContentLength 原始内容字节数，仅在截断时输出
-	ContentLength int  `json:"content_length,omitempty"`
-	Applied       bool `json:"applied"`
+	ContentLength int `json:"content_length,omitempty"`
+	// Encrypted 标记该配置是否为加密配置；为 true 时 Content 为密文，
+	// 并携带 EncryptAlgo/DataKey 供接收方解密核对客户端实际生效的明文内容
+	Encrypted bool `json:"encrypted,omitempty"`
+	// EncryptAlgo 加密算法（如 AES），仅加密配置输出
+	EncryptAlgo string `json:"encrypt_algo,omitempty"`
+	// DataKey 数据密钥（base64 明文），仅加密配置输出。
+	// 接收方为服务端（密钥属主）且查询入口有 token 鉴权；该字段禁止进入任何日志。
+	DataKey string `json:"data_key,omitempty"`
+	Applied bool   `json:"applied"`
 	// Reason applied=false 的具体原因，便于运维区分"未监听"与"配置中心未启用"等场景
 	Reason string `json:"reason,omitempty"`
 }

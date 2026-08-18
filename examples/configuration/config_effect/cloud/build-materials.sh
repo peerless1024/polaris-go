@@ -99,8 +99,8 @@ zip 包:   ${DIST_DIR}/${NODE_NAME}.zip
 上传 zip 到云节点后:
   unzip ${NODE_NAME}.zip && cd ${NODE_NAME}
 
-  # 1. 发布全量基线配置(已存在则跳过)
-  POLARIS_TOKEN=xxx ./client.sh setup --polaris-server <服务端地址> --content effect-content-v1
+  # 1. 发布 3 份基线配置(已存在则跳过)，并把第 1 份经 console 接口覆盖为加密配置后发布
+  POLARIS_TOKEN=xxx ./client.sh setup --polaris-server <服务端地址> --content effect-content-v
 
   # 2. 启动常驻客户端(自动订阅配置 + 建 WatchClientEvents 长连接)
   POLARIS_TOKEN=xxx ./client.sh start --polaris-server <服务端地址> --port 18091
@@ -125,6 +125,8 @@ DEBUG: client.sh start 加 --debug。
   - 调服务端 maintain 接口向该 clientID PUSH 配置生效查询
   - 服务端经长连接下发 PUSH，客户端回 ACK，服务端透传给 verify-cloud.sh
   - 脚本解析 ACK，断言 applied=true 且 version/md5/content 与客户端本地一致
+  - 加密文件(第 1 份)的 ACK 额外携带 encrypted/encrypt_algo/data_key，
+    脚本用 data_key 解密密文 content 并断言与客户端生效明文一致
 EOF
 echo ""
 echo -e "${GREEN}物料生成完成。${NC}"

@@ -540,6 +540,15 @@ type ConfigFileContentItem struct {
 	//     变更日志已对加密 tag 打码）经 ACK 明文回传，扩大暴露面。密文回传不泄露明文，且服务端
 	//     作为配置来源本就可据此校验版本与摘要。
 	Content string `json:"content"`
+	// Encrypted 标记该配置是否为加密配置；为 true 时 Content 为密文，
+	// 并携带 EncryptAlgo/DataKey 供接收方解密核对客户端实际生效的明文内容。
+	Encrypted bool `json:"encrypted,omitempty"`
+	// EncryptAlgo 加密算法（tag internal-encryptalgo，如 AES），仅加密配置输出
+	EncryptAlgo string `json:"encrypt_algo,omitempty"`
+	// DataKey 数据密钥（tag internal-datakey，base64 明文密钥），仅加密配置输出。
+	// 安全说明：ACK 的接收方是服务端（数据密钥属主，密钥本由服务端生成），查询入口有 token 鉴权，
+	// 信任模型与 console 拉取配置接口一致；该字段不进入 SDK 任何日志（ConfigFile.String() 已 maskTags 打码）。
+	DataKey string `json:"data_key,omitempty"`
 	// EffectiveTime 配置在客户端本地的实际生效时刻（int64 毫秒时间戳），
 	// 取自 ConfigFileRepo 在 fireChangeEvent 时记录的 time.Now().UnixMilli()。
 	// 未拉取到远端文件时为零值（omitempty 省略）。
@@ -556,6 +565,7 @@ type ConfigFileContentItem struct {
 // 若分别从 notifiedVersion 与 remoteConfigFileRef 取，长轮询并发更新时会返回
 // "version 旧、content 新" 的撕裂组合，导致服务端误判配置是否生效。
 // content 取 SourceContent（加密配置为密文），与 md5 自洽且不回传解密明文，详见字段注释。
+// 加密配置额外从同一快照填充 Encrypted/EncryptAlgo/DataKey，供接收方解密密文。
 // 内部持有 fclock 读锁，并发安全；receiver 为 nil 时返回 (zero, false) 避免解引用 panic。
 func (c *ConfigFileFlow) GetWatchedConfigFileContent(namespace, fileGroup, fileName string) (ConfigFileContentItem, bool) {
 	if c == nil {
@@ -584,6 +594,13 @@ func (c *ConfigFileFlow) GetWatchedConfigFileContent(namespace, fileGroup, fileN
 	item.Version = cf.GetVersion()
 	item.Md5 = cf.GetMd5()
 	item.Content = cf.GetSourceContent()
+	// 加密配置：携带算法与数据密钥供接收方解密，与 content/md5 同一次快照保证自一致。
+	// data_key 缺失（tag 被剥除等边角场景）时留空，omitempty 省略，不影响主流程。
+	if cf.GetEncrypted() {
+		item.Encrypted = true
+		item.EncryptAlgo = cf.GetEncryptAlgo()
+		item.DataKey = cf.GetDataKey()
+	}
 	item.EffectiveTime = repo.getEffectiveTime()
 	item.Pulled = true
 	return item, true

@@ -25,6 +25,8 @@
                 │  2. 调服务端 maintain 接口 PUSH 配置生效查询              │
                 │  3. 解析返回的 ACK content                              │
                 │  4. 断言 applied=true 且 version/md5 与客户端一致        │
+                │  5. 加密文件 ACK 携带 encrypt_algo/data_key，            │
+                │     用 data_key 解密密文后断言 == 明文基线               │
                 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -34,7 +36,8 @@
 
 - **创建方式**：polaris-go SDK 的 `CreateConfigFile`/`UpdateConfigFile` 不携带 `Encrypted`/`Tags`（`transferToConfigFile` 仅映射 `namespace/group/name/content`），无法创建加密配置。因此脚本改用服务端 console HTTP 接口 `POST /config/v1/configfiles`（body 带 `encrypted:true, encrypt_algo:"AES"`）创建，再 `POST /config/v1/configfiles/release` 发布。
 - **客户端解密**：crypto/aes filter 默认启用（非 agent 模式），`run` 模式订阅到加密的 `-1.yaml` 会自动解密，`GetContent()` 返回明文。
-- **一致性**：生效查询校验只比对 `applied/version/md5`。ACK 回带的 `content` 为**源内容（密文）**、`md5` 为源内容摘要，与客户端 `/config` 快照的 `md5` 同源（同为服务端密文摘要），因此加密与非加密文件的校验逻辑一致，脚本无需特判。
+- **一致性**：生效查询校验比对 `applied/version/md5`。ACK 回带的 `content` 为**源内容（密文）**、`md5` 为源内容摘要，与客户端 `/config` 快照的 `md5` 同源（同为服务端密文摘要），因此加密与非加密文件的校验逻辑一致，脚本无需特判。
+- **ACK 加密元信息**：加密配置的 ACK 额外携带 `encrypted:true`、`encrypt_algo`（如 `AES`）与 `data_key`（base64 明文数据密钥），接收方可据此解密密文 `content` 核对客户端实际生效的明文内容（`AES-CBC-PKCS7` 解密，IV 取 `key[:16]`，与 SDK `plugin/configfilter/crypto/aes` 实现对齐）。脚本用例 4 即用 `data_key` 解密 ACK 密文并断言等于明文基线。
 
 ## 前置条件
 
@@ -86,6 +89,8 @@ chmod +x config-effect-test.sh
 | 2.x.2 | ACK version 一致 | 每个文件 ACK version == 客户端本地 version |
 | 2.x.3 | ACK md5 一致 | 每个文件 ACK md5 == 客户端本地 md5 |
 | 3 | 加密配置解密一致 | 第 1 个文件（加密）解密后 content == 明文基线 `effect-content-v1` |
+| 4.1 | ACK 携带加密元信息 | 加密文件 ACK `encrypted=true`、`encrypt_algo=AES`、`data_key` 非空 |
+| 4.2 | 接收方解密一致 | 用 ACK 的 `data_key` 解密 ACK 密文 `content` == 明文基线 `effect-content-v1` |
 
 ## 客户端 HTTP 接口
 
