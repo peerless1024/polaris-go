@@ -4,7 +4,7 @@
 
 本项目所有重要的变更都必须记录在本文件中。
 
-## [v1.7.2-snapshot] - 2026-08-18
+## [v1.7.3-snapshot] - 2026-08-20
 
 ### 添加的特性
 
@@ -31,7 +31,8 @@
   追加 `-<seq>` 后缀，避免服务端按 clientID 互相覆盖；首个保持原格式，向后兼容。
 - **`examples/configuration/config_effect/`**：新增配置生效查询端到端验证 demo，
   含本地脚本 `config-effect-test.sh` 与云上物料 `cloud/`（`client.sh` /
-  `verify-cloud.sh` / `build-materials.sh`）。第 1 个派生文件为加密配置，覆盖
+  `verify-cloud.sh` / `build-materials.sh` / `pack-logs.sh` 节点日志打包）。
+  第 1 个派生文件为加密配置，覆盖
   「密文下发 → SDK crypto filter 解密 → 明文生效 → ACK 携带 `encrypt_algo`/`data_key`
   → 接收方 openssl 解密比对明文」全链路（本地用例 4 / 云上校验 5）。
 
