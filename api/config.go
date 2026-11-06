@@ -258,7 +258,7 @@ func InitContextByConfig(cfg config.Configuration) (SDKContext, error) {
 	}
 	logCtx := globalCtx.GetContextLogger()
 	if logCtx.GetBaseLogger().IsLevelEnabled(log.DebugLog) {
-		text, err := yaml.Marshal(cfg)
+		text, err := marshalConfigForLog(cfg)
 		if err != nil {
 			return nil, model.NewSDKError(model.ErrCodeAPIInvalidConfig, err, "fail to marshal input config")
 		}
@@ -302,7 +302,7 @@ func InitContextByConfig(cfg config.Configuration) (SDKContext, error) {
 	if err != nil {
 		finalErrs = multierror.Append(finalErrs, err)
 	}
-	text, terr := yaml.Marshal(cfg)
+	text, terr := marshalConfigForLog(cfg)
 	if terr != nil {
 		finalErrs = multierror.Append(finalErrs, model.NewSDKError(model.ErrCodeAPIInvalidConfig, terr,
 			"fail to marshal input config"))
@@ -328,6 +328,39 @@ func InitContextByConfig(cfg config.Configuration) (SDKContext, error) {
 	globalCtx.SetValue(sdk.ContextKeyFinishInitTime, time.Now())
 	logCtx.GetBaseLogger().Infof("\n-------%s, SDKContext init successfully-------", token.UID)
 	return ctx, nil
+}
+
+func marshalConfigForLog(cfg interface{}) ([]byte, error) {
+	text, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var value interface{}
+	if err = yaml.Unmarshal(text, &value); err != nil {
+		return nil, err
+	}
+	redactConfigTokens(value)
+	return yaml.Marshal(value)
+}
+
+func redactConfigTokens(value interface{}) {
+	switch typed := value.(type) {
+	case map[interface{}]interface{}:
+		for key, item := range typed {
+			name, ok := key.(string)
+			if ok && strings.EqualFold(name, "token") {
+				if token, tokenOK := item.(string); tokenOK && token != "" {
+					typed[key] = "***"
+				}
+				continue
+			}
+			redactConfigTokens(item)
+		}
+	case []interface{}:
+		for _, item := range typed {
+			redactConfigTokens(item)
+		}
+	}
 }
 
 // initSelfIP 获取SDK自身的IP

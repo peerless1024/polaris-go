@@ -189,6 +189,7 @@ const (
 	ApiGetLosslessRule
 	ApiGetBlockAllowRule
 	ApiGetLane
+	APIGetAgentService
 )
 
 // API标识到别名.
@@ -213,6 +214,7 @@ var (
 		ApiGetLosslessRule:         "Consumer::GetLosslessRule",
 		ApiGetBlockAllowRule:       "Consumer::GetBlockAllowRule",
 		ApiGetLane:                 "Consumer::GetLane",
+		APIGetAgentService:         "Agent::GetService",
 	}
 )
 

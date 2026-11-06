@@ -501,6 +501,52 @@ func (g *GetServicesRequest) Validate() error {
 	return nil
 }
 
+// GetAgentServiceRequest 精确获取单个 AI Agent 服务。
+type GetAgentServiceRequest struct {
+	// 可选，流水号，用于跟踪用户的请求。
+	FlowID uint64
+	// 必选，命名空间。
+	Namespace string
+	// 必选，服务名。
+	Service string
+	// 可选，单次查询超时时间。
+	Timeout *time.Duration
+	// 可选，重试次数。
+	RetryCount *int
+}
+
+// SetTimeout 设置超时时间。
+func (g *GetAgentServiceRequest) SetTimeout(duration time.Duration) {
+	g.Timeout = ToDurationPtr(duration)
+}
+
+// SetRetryCount 设置重试次数。
+func (g *GetAgentServiceRequest) SetRetryCount(retryCount int) {
+	g.RetryCount = &retryCount
+}
+
+// GetTimeoutPtr 获取超时时间。
+func (g *GetAgentServiceRequest) GetTimeoutPtr() *time.Duration {
+	return g.Timeout
+}
+
+// GetRetryCountPtr 获取重试次数。
+func (g *GetAgentServiceRequest) GetRetryCountPtr() *int {
+	return g.RetryCount
+}
+
+// Validate 校验请求。
+func (g *GetAgentServiceRequest) Validate() error {
+	if g == nil {
+		return NewSDKError(ErrCodeAPIInvalidArgument, nil, "GetAgentServiceRequest can not be nil")
+	}
+	if g.Namespace == "" || g.Service == "" {
+		return NewSDKError(ErrCodeAPIInvalidArgument, nil,
+			"GetAgentServiceRequest namespace and service must not be empty")
+	}
+	return nil
+}
+
 // InitCalleeServiceRequest .
 type InitCalleeServiceRequest struct {
 	Namespace string

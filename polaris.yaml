@@ -172,6 +172,24 @@ global:
     host: 0.0.0.0
     # 描述：Admin监听的端口
     port: 28080
+# 描述: Skill Registry 独立 gRPC 服务配置；默认关闭
+skill:
+  enable: false
+  # Skill gRPC 与 discover（默认 8091）分离，常用端口为 8094
+  addresses: []
+  token: ""
+  connectTimeout: 1s
+  messageTimeout: 5s
+  downloadTimeout: 30s
+  plugin:
+    polaris:
+      maxCallRecvMsgSize: 134217728
+# 描述: AI Agent 服务 Console HTTP 写入配置；未配置时相关写操作明确降级
+serviceWriter:
+  # 支持 host:port 或 http(s)://host:port
+  addresses: []
+  token: ""
+  timeout: 5s
 #描述:主调端配置
 consumer:
   #描述:本地缓存相关配置

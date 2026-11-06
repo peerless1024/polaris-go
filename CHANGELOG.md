@@ -4,6 +4,53 @@
 
 本项目所有重要的变更都必须记录在本文件中。
 
+## [Unreleased]
+
+### 添加的特性
+
+#### AI Agent Registry 与 Skill（AI Registry）
+
+- 升级 `github.com/polarismesh/specification` 到 `v1.9.0-RC1`，新增协议无关的
+  `ServiceType`、`ExtendedMetadata`、`AgentSkill`、最小 `AgentCard` 和 Skill 模型。
+- 新增 `AgentAPI`：精确读取 AI Agent 服务、构建/校验实例 metadata、通过可选 Console
+  Writer 执行 `EnsureService`、`MountSkills` 和 `UnmountSkills`。
+- 精确 AI Agent 服务读取与 `polaris-java` 对齐，使用 Discover INSTANCE 响应中的服务投影；
+  显式类型缺失时可由实例 `ai-agent-name` 或 Skill extended metadata 识别 Java 注册的 Agent；
+  缺少 `revision` 或所有 AI 标记时保持明确错误。
+- 新增独立 `skill` gRPC 配置和 `SkillConnector` 插件；新增 `SkillAPI` 查询 published
+  Skill、Markdown/ZIP 流式下载、分片与总长度校验、安全解压、SHA-256 缓存校验和不可变代目录安装；
+  ZIP 下载使用独立的 `skill.downloadTimeout`，默认 30s。
+- Console 更新保留服务 revision、`export_to` 和 `sync_to_global_registry`，成功写入后回读完整快照，
+  并在合并 Skill 时保留未知扩展类型；非空列表的 `NoNeedUpdate` 按幂等成功处理。多 Console 地址
+  重试会保留可能已应用的写入状态，后续写操作先确认或重放原目标。
+- Skill 安装原子持久化最后成功选择；Force 复用历史 digest 后普通安装仍读取最新选择，当前代目录
+  损坏时重新下载修复，不静默回退到历史包。
+- Skill Connector 读写响应增加 namespace/name/version 一致性校验，空响应返回
+  `ErrCodeInvalidResponse` 而不是 panic。
+- Skill ZIP 限制 10000 entry，并对实际解压字节执行 256 MiB 总量限制；tree digest v3
+  纳入文件权限位，权限损坏会触发重新安装。
+- AI Agent 类型推断只接受非空 `ai-agent-name` 和非空 AgentSkill ID；Console 错误响应体
+  最多记录 1024 字节，Service Writer 地址拒绝 query、fragment、opaque component 和伪 scheme。
+- AI Registry 真实 E2E runner 拆分为 `agent`、`mcp`、`skill` 子目录入口，统一使用
+  `go-sdk-integration` namespace；MCP 覆盖 streamable HTTP/SSE 注册元数据、发现、TTL
+  heartbeat 和反注册，Service Contract/Tool 调用保持明确的后续范围。
+- 同一 SDKContext 对同服务的 Ensure/Mount/Unmount 串行执行，锁等待、读改写和确认共用
+  `serviceWriter.timeout`；跨 SDKContext/进程仍要求调用方协调单 owner。
+- 显式空列表清空依赖服务端保留 HTTP protobuf repeated 字段 presence；服务端未支持时 SDK 返回
+  `ErrCodeServiceWriteUnsupported`，不会误报清空成功。
+- 根包新增 `NewAgentAPI*` 和 `NewSkillAPI*` 工厂。
+
+#### 验证范围
+
+- 已覆盖模型 round-trip、AgentCard metadata、精确服务缓存类型、Skill 流式边界、恶意 ZIP、
+  Console 类型冲突/合并/空列表能力失败/未知类型保留等单元测试。
+- 新增独立真实 E2E runner，覆盖 AgentCard 注册/发现调用、挂载、Skill 查询/多帧下载/安装、
+  心跳/反注册、共享 SDKContext 与配置订阅取消；默认保留服务和进程，显式清理验证资源归属，Skill 默认保留。
+- 2026-11-05 指定真实部署全集执行 26 项，25 项通过；服务类型投影兼容、AgentCard-only 注册、挂载发现和
+  Java 风格实例推断均通过。唯一失败为显式空列表清空：服务端 legacy `jsonpb` 将 `[]` 解析成 nil，
+  `UpdateService` 因而不触发清空，尚未达到全部通过的合并门槛。其他 Skill Registry、实例发现/调用和配置回归已运行。
+- 尚未执行 A2A 三仓库推理 E2E、远端 CI 或 Go 版本矩阵；mock/race 测试不替代真实 E2E。
+
 ## [v1.7.2]
 
 ### 添加的特性

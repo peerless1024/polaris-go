@@ -23,12 +23,14 @@ import (
 
 	"github.com/modern-go/reflect2"
 
+	"github.com/polarismesh/polaris-go/pkg/adminclient"
 	"github.com/polarismesh/polaris-go/pkg/config"
 	"github.com/polarismesh/polaris-go/pkg/flow/configuration"
 	"github.com/polarismesh/polaris-go/pkg/flow/data"
 	"github.com/polarismesh/polaris-go/pkg/flow/quota"
 	"github.com/polarismesh/polaris-go/pkg/flow/registerstate"
 	"github.com/polarismesh/polaris-go/pkg/flow/schedule"
+	skillflow "github.com/polarismesh/polaris-go/pkg/flow/skill"
 	"github.com/polarismesh/polaris-go/pkg/flow/startup"
 	"github.com/polarismesh/polaris-go/pkg/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
@@ -46,6 +48,7 @@ import (
 	statreporter "github.com/polarismesh/polaris-go/pkg/plugin/metrics"
 	"github.com/polarismesh/polaris-go/pkg/plugin/serverconnector"
 	"github.com/polarismesh/polaris-go/pkg/plugin/servicerouter"
+	"github.com/polarismesh/polaris-go/pkg/plugin/skillconnector"
 	"github.com/polarismesh/polaris-go/pkg/plugin/weightadjuster"
 	"github.com/polarismesh/polaris-go/pkg/sdk"
 )
@@ -56,6 +59,12 @@ type Engine struct {
 	connector serverconnector.ServerConnector
 	// 配置中心连接器
 	configConnector configconnector.ConfigConnector
+	// Skill Registry 连接器
+	skillConnector skillconnector.SkillConnector
+	// Skill 编排流程
+	skillFlow *skillflow.Flow
+	// AI Agent 服务 Console 写入客户端
+	serviceWriter *adminclient.Client
 	// 服务本地缓存
 	registry localregistry.LocalRegistry
 	// 全局配置
@@ -146,6 +155,16 @@ func InitFlowEngine(flowEngine *Engine, initContext plugin.InitContext) error {
 		if err != nil {
 			return err
 		}
+	}
+	if cfg.GetSkill().IsEnable() {
+		flowEngine.skillConnector, err = data.GetSkillConnector(cfg, plugins)
+		if err != nil {
+			return err
+		}
+		flowEngine.skillFlow = skillflow.NewFlow(flowEngine.skillConnector)
+	}
+	if len(cfg.GetServiceWriter().GetAddresses()) > 0 {
+		flowEngine.serviceWriter = adminclient.New(cfg.GetServiceWriter())
 	}
 	// 加载配置过滤链
 	if cfg.GetConfigFile().GetConfigFilterConfig().IsEnable() {

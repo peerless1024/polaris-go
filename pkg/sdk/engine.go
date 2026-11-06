@@ -99,6 +99,22 @@ type Engine interface {
 	// SyncGetServices 同步获取批量服务
 	SyncGetServices(
 		eventType model.EventType, req *model.GetServicesRequest) (*model.ServicesResponse, error)
+	// SyncGetAgentService 精确获取单个 AI Agent 服务
+	SyncGetAgentService(req *model.GetAgentServiceRequest) (*model.AgentService, error)
+	// SyncEnsureAgentService 确保 AI Agent 服务存在
+	SyncEnsureAgentService(req *model.EnsureAgentServiceRequest) (*model.AgentService, error)
+	// SyncMountAgentSkills 挂载 AI Agent Skill
+	SyncMountAgentSkills(req *model.MountAgentSkillsRequest) (*model.AgentService, error)
+	// SyncUnmountAgentSkills 卸载 AI Agent Skill
+	SyncUnmountAgentSkills(req *model.UnmountAgentSkillsRequest) (*model.AgentService, error)
+	// SyncGetSkill 获取单个 published Skill
+	SyncGetSkill(req *model.GetSkillRequest) (*model.SkillResource, error)
+	// SyncGetSkillList 获取 published Skill 列表
+	SyncGetSkillList(req *model.GetSkillListRequest) ([]*model.SkillResource, error)
+	// SyncDownloadSkill 下载 Skill
+	SyncDownloadSkill(req *model.SkillDownloadRequest) (*model.SkillPackage, error)
+	// SyncInstallSkill 安装 Skill
+	SyncInstallSkill(req *model.SkillInstallRequest) (*model.InstalledSkill, error)
 	// AsyncGetQuota 同步获取配额信息
 	AsyncGetQuota(request *model.QuotaRequestImpl) (*model.QuotaFutureImpl, error)
 	// ScheduleTask 启动定时任务

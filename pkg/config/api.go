@@ -573,6 +573,10 @@ type Configuration interface {
 	GetProvider() ProviderConfig
 	// GetConfigFile config前缀开头的所有配置项
 	GetConfigFile() ConfigFileConfig
+	// GetSkill skill前缀开头的所有配置项
+	GetSkill() SkillConfig
+	// GetServiceWriter serviceWriter前缀开头的所有配置项
+	GetServiceWriter() ServiceWriterConfig
 }
 
 // When when to active health check.

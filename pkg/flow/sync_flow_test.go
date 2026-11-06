@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
@@ -27,6 +28,37 @@ import (
 func TestFormatArgumentsToLabels_Empty(t *testing.T) {
 	assert.Equal(t, "", formatArgumentsToLabels(nil))
 	assert.Equal(t, "", formatArgumentsToLabels([]model.Argument{}))
+}
+
+func TestValidateAgentServiceSnapshotRequiresCompleteProjection(t *testing.T) {
+	_, err := validateAgentServiceSnapshot(nil, "Production", "customer-agent")
+	require.Error(t, err)
+	assert.Equal(t, model.ErrCodeInvalidResponse, model.GetErrorCodeFromError(err))
+
+	service := &model.AgentService{
+		Namespace: "Production",
+		Name:      "customer-agent",
+		Type:      model.ServiceTypeAIAgent,
+	}
+	_, err = validateAgentServiceSnapshot(service, service.Namespace, service.Name)
+	require.Error(t, err)
+	assert.Equal(t, model.ErrCodeInvalidResponse, model.GetErrorCodeFromError(err))
+
+	service.Revision = "rev-1"
+	validated, err := validateAgentServiceSnapshot(service, service.Namespace, service.Name)
+	require.NoError(t, err)
+	require.Equal(t, service, validated)
+
+	service.Namespace = "Other"
+	_, err = validateAgentServiceSnapshot(service, "Production", "customer-agent")
+	require.Error(t, err)
+	assert.Equal(t, model.ErrCodeInvalidResponse, model.GetErrorCodeFromError(err))
+
+	service.Namespace = "Production"
+	service.Type = model.ServiceTypeMicroservice
+	_, err = validateAgentServiceSnapshot(service, service.Namespace, service.Name)
+	require.Error(t, err)
+	assert.Equal(t, model.ErrCodeServiceTypeConflict, model.GetErrorCodeFromError(err))
 }
 
 // TestFormatArgumentsToLabels_SingleArgument 验证单参数格式与 Argument.String() 一致。

@@ -21,6 +21,7 @@ import (
 	"io"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	apimodel "github.com/polarismesh/specification/source/go/api/v1/model"
@@ -270,6 +271,37 @@ func (s *ServiceInstancesInProto) GetInstance(instId string) model.Instance {
 // GetServiceLocalValue 获取服务的localvalue.
 func (s *ServiceInstancesInProto) GetServiceLocalValue() local.ServiceLocalValue {
 	return s.svcLocalValue
+}
+
+// GetAgentService 将 INSTANCE 响应中的服务投影转换为完整 AI Agent 服务快照。
+func (s *ServiceInstancesInProto) GetAgentService() *model.AgentService {
+	if s == nil || s.notExists || s.service == nil {
+		return nil
+	}
+	agentService := NewAgentServiceFromProto(s.service)
+	if agentService.Type == model.ServiceTypeMicroservice && s.hasAIAgentSignal() {
+		agentService.Type = model.ServiceTypeAIAgent
+	}
+	return agentService
+}
+
+func (s *ServiceInstancesInProto) hasAIAgentSignal() bool {
+	for _, metadata := range s.service.GetExtendedMetadata() {
+		if metadata.GetType() == apiservice.ExtendedMetadata_EXTENDED_METADATA_SKILL &&
+			metadata.GetAgentSkill() != nil &&
+			strings.TrimSpace(metadata.GetAgentSkill().GetId()) != "" {
+			return true
+		}
+	}
+	for _, instance := range s.instances {
+		if instance == nil {
+			continue
+		}
+		if strings.TrimSpace(instance.GetMetadata()[model.MetadataKeyAIAgentName]) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // InstanceInProto 通过proto定义来构造实例.

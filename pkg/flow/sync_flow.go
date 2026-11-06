@@ -610,6 +610,81 @@ func (e *Engine) doSyncGetServices(commonRequest *data.ServicesRequest) (*model.
 	return commonRequest.BuildServicesResponse(commonRequest.GetServices()), nil
 }
 
+type agentServiceInstanceProvider interface {
+	GetAgentService() *model.AgentService
+}
+
+// SyncGetAgentService 从 Discover INSTANCE 投影精确获取单个 AI Agent 服务。
+func (e *Engine) SyncGetAgentService(req *model.GetAgentServiceRequest) (*model.AgentService, error) {
+	apiStartTime := e.globalCtx.Now()
+	commonRequest := data.PoolGetCommonInstancesRequest(e.plugins)
+	commonRequest.InitByGetAllRequest(&model.GetAllInstancesRequest{
+		FlowID:     req.FlowID,
+		Namespace:  req.Namespace,
+		Service:    req.Service,
+		Timeout:    req.Timeout,
+		RetryCount: req.RetryCount,
+	}, e.configuration)
+	commonRequest.CallResult.APIName = model.APIGetAgentService
+	instancesResponse, err := e.doSyncGetAllInstances(commonRequest)
+	var agentService *model.AgentService
+	if err == nil {
+		provider, ok := commonRequest.DstInstances.(agentServiceInstanceProvider)
+		if !ok {
+			err = model.NewSDKError(model.ErrCodeInvalidResponse, nil,
+				"Discover INSTANCE response for AI Agent service %s/%s does not provide a service projection",
+				req.Namespace, req.Service)
+		} else {
+			agentService = provider.GetAgentService()
+		}
+	}
+	if err == nil {
+		if agentService == nil {
+			if instancesResponse != nil && instancesResponse.NotExists {
+				err = model.NewSDKError(model.ErrCodeServiceNotFound, nil,
+					"AI Agent service %s/%s not found", req.Namespace, req.Service)
+			} else {
+				err = model.NewSDKError(model.ErrCodeInvalidResponse, nil,
+					"Discover INSTANCE response for AI Agent service %s/%s has no service projection",
+					req.Namespace, req.Service)
+			}
+		} else {
+			agentService, err = validateAgentServiceSnapshot(agentService, req.Namespace, req.Service)
+		}
+	}
+	if err != nil {
+		commonRequest.CallResult.SetFail(model.GetErrorCodeFromError(err), e.globalCtx.Since(apiStartTime))
+	}
+	e.syncInstancesReportAndFinalize(commonRequest)
+	return agentService, err
+}
+
+func validateAgentServiceSnapshot(
+	service *model.AgentService, namespace, serviceName string,
+) (*model.AgentService, error) {
+	if service == nil {
+		return nil, model.NewSDKError(model.ErrCodeInvalidResponse, nil,
+			"Discover response for AI Agent service %s/%s has no service projection",
+			namespace, serviceName)
+	}
+	if service.Namespace != namespace || service.Name != serviceName {
+		return nil, model.NewSDKError(model.ErrCodeInvalidResponse, nil,
+			"Discover response returned service %s/%s for requested AI Agent service %s/%s",
+			service.Namespace, service.Name, namespace, serviceName)
+	}
+	if service.Revision == "" {
+		return nil, model.NewSDKError(model.ErrCodeInvalidResponse, nil,
+			"Discover response for AI Agent service %s/%s has no service-level revision; "+
+				"the server does not provide the required AI Agent service projection",
+			namespace, serviceName)
+	}
+	if service.Type != model.ServiceTypeAIAgent {
+		return nil, model.NewSDKError(model.ErrCodeServiceTypeConflict, nil,
+			"service %s/%s is not AI_AGENT", namespace, serviceName)
+	}
+	return service, nil
+}
+
 // SyncGetServiceRule 同步获取服务规则
 func (e *Engine) SyncGetServiceRule(
 	eventType model.EventType, req *model.GetServiceRuleRequest) (*model.ServiceRuleResponse, error) {

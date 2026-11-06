@@ -76,8 +76,20 @@ const (
 	ErrCodeMeshConfigNotFound ErrCode = BaseIndexErrCode + 20
 	// ErrCodeConsumerInitCalleeError 初始化服务运行中需要的被调服务失败
 	ErrCodeConsumerInitCalleeError ErrCode = BaseIndexErrCode + 21
+	// ErrCodeServiceTypeConflict 服务已存在但类型不是 AI Agent
+	ErrCodeServiceTypeConflict ErrCode = BaseIndexErrCode + 22
+	// ErrCodeServiceWriteUnsupported 未配置 Console Service Writer 或服务端不支持必需写入语义
+	ErrCodeServiceWriteUnsupported ErrCode = BaseIndexErrCode + 23
+	// ErrCodeServiceWriteError Console Service Writer 写入失败
+	ErrCodeServiceWriteError ErrCode = BaseIndexErrCode + 24
+	// ErrCodeSkillNotConfigured Skill Connector 未配置或未启用
+	ErrCodeSkillNotConfigured ErrCode = BaseIndexErrCode + 25
+	// ErrCodeSkillNotFound Skill 不存在、未发布或版本不可用
+	ErrCodeSkillNotFound ErrCode = BaseIndexErrCode + 26
+	// ErrCodeSkillPackageInvalid Skill 包内容不安全或不符合契约
+	ErrCodeSkillPackageInvalid ErrCode = BaseIndexErrCode + 27
 	// ErrCodeCount 接口错误码数量，每添加了一个错误码，将这个数值加1
-	ErrCodeCount = 23
+	ErrCodeCount = 29
 )
 
 const (
@@ -244,6 +256,12 @@ var errCodeString = map[ErrCode]string{
 	ErrCodeDstMetaMismatch:         "ErrCodeDstMetaMismatch",
 	ErrCodeMeshConfigNotFound:      "ErrCodeMeshConfigNotFound",
 	ErrCodeConsumerInitCalleeError: "ErrCodeConsumerInitCalleeError",
+	ErrCodeServiceTypeConflict:     "ErrCodeServiceTypeConflict",
+	ErrCodeServiceWriteUnsupported: "ErrCodeServiceWriteUnsupported",
+	ErrCodeServiceWriteError:       "ErrCodeServiceWriteError",
+	ErrCodeSkillNotConfigured:      "ErrCodeSkillNotConfigured",
+	ErrCodeSkillNotFound:           "ErrCodeSkillNotFound",
+	ErrCodeSkillPackageInvalid:     "ErrCodeSkillPackageInvalid",
 }
 
 var errCodeArray = []ErrCode{ErrCodeSuccess, ErrCodeUnknown, ErrCodeAPIInvalidArgument,
@@ -252,6 +270,8 @@ var errCodeArray = []ErrCode{ErrCodeSuccess, ErrCodeUnknown, ErrCodeAPIInvalidAr
 	ErrCodeAPIInstanceNotFound, ErrCodeInvalidRule, ErrCodeRouteRuleNotMatch, ErrCodeInvalidResponse,
 	ErrCodeInternalError, ErrCodeServiceNotFound, ErrCodeServerException, ErrCodeLocationNotFound,
 	ErrCodeLocationMismatch, ErrCodeDstMetaMismatch, ErrCodeMeshConfigNotFound, ErrCodeConsumerInitCalleeError,
+	ErrCodeServiceTypeConflict, ErrCodeServiceWriteUnsupported, ErrCodeServiceWriteError,
+	ErrCodeSkillNotConfigured, ErrCodeSkillNotFound, ErrCodeSkillPackageInvalid,
 }
 
 // ErrCodeFromIndex 根据错误码索引返回错误码
@@ -303,6 +323,12 @@ var errCodeTypeMap = map[ErrCode]ErrCodeType{
 	ErrCodeDstMetaMismatch:         UserError,
 	ErrCodeMeshConfigNotFound:      UserError,
 	ErrCodeConsumerInitCalleeError: UserError,
+	ErrCodeServiceTypeConflict:     UserError,
+	ErrCodeServiceWriteUnsupported: UserError,
+	ErrCodeServiceWriteError:       PolarisError,
+	ErrCodeSkillNotConfigured:      UserError,
+	ErrCodeSkillNotFound:           UserError,
+	ErrCodeSkillPackageInvalid:     UserError,
 }
 
 // GetErrCodeType 获取错误码类型
